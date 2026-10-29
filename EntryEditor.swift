@@ -42,6 +42,11 @@ struct EntryEditor: View {
     @FocusState private var amountFocused: Bool
     private var custom: [CategoryItem] { (try? JSONDecoder().decode([CategoryItem].self, from: Data(customJSON.utf8))) ?? [] }
     private var categories: [CategoryItem] { (income ? incomeCategories : expenseCategories) + custom.filter { $0.income == income } }
+    private var visibleCategories: [CategoryItem] {
+        if showAllCategories { return categories }
+        let common = Array(categories.prefix(8))
+        return common + categories.filter { $0.name == category && !common.contains($0) }
+    }
     private let columns = [GridItem(.adaptive(minimum: 68), spacing: 10)]
 
     init(entry: Entry?, embedded: Bool = false) {
@@ -73,19 +78,7 @@ struct EntryEditor: View {
                         HStack { Image(systemName: "calendar"); Text(date, format: .dateTime.year().month().day()); Spacer(); Text(income ? "收入" : "支出") }.font(.caption).foregroundStyle(.secondary).padding(.top, 6)
                     }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
                     HStack { Text("分类").font(.headline); Spacer(); Button { customName = ""; customEmoji = "✨"; showCustom = true } label: { Label("自定义", systemImage: "plus") }.font(.subheadline) }
-                    LazyVGrid(columns: columns, spacing: 14) {
-                        ForEach(showAllCategories ? categories : Array(categories.prefix(8)) + categories.filter { $0.name == category && !Array(categories.prefix(8)).contains($0) }) { item in
-                            Button { if category != item.name { detail = "" }; category = item.name; amountFocused = false } label: {
-                                VStack(spacing: 6) {
-                                    Text(item.emoji).font(.title2).frame(width: 52, height: 52)
-                                        .background(category == item.name ? Color.accentColor.opacity(0.2) : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 17))
-                                        .overlay(RoundedRectangle(cornerRadius: 17).stroke(category == item.name ? Color.accentColor : .clear, lineWidth: 2))
-                                    Text(item.name).font(.caption).foregroundStyle(.primary).lineLimit(1)
-                                }.frame(maxWidth: .infinity)
-                            }.buttonStyle(.plain).accessibilityLabel("\(item.name)\(category == item.name ? "，已选择" : "")")
-                                .contextMenu { if custom.contains(item) { Button("删除自定义分类", role: .destructive) { remove(item) } } }
-                        }
-                    }
+                    categoryGrid
                     Button(showAllCategories ? "收起分类" : "查看全部分类（\(categories.count)）") { withAnimation { showAllCategories.toggle() } }
                         .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).padding(.vertical, 8)
                     if !category.isEmpty && !categories.contains(where: { $0.name == category }) { Text("原有分类：\(category)").font(.subheadline).foregroundStyle(.secondary) }
@@ -100,20 +93,7 @@ struct EntryEditor: View {
                             TextField("其他细分类（可自己填写）", text: $detail).textFieldStyle(.roundedBorder)
                         }.padding(18).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
                     }
-                    DisclosureGroup("更多信息（选填）") {
-                    VStack(spacing: 0) {
-                        DatePicker("日期", selection: $date, displayedComponents: .date).padding(16)
-                        Divider().padding(.leading, 16)
-                        HStack { Text("购买平台"); Spacer(); Menu { ForEach(["淘宝", "京东", "拼多多", "美团", "线下"], id: \.self) { item in Button(item) { merchant = item } } } label: { Text(merchant.isEmpty ? "选择" : merchant).foregroundStyle(.secondary) } }.padding(16)
-                        TextField("其他购买平台（可填写）", text: $merchant).padding(.horizontal, 16).padding(.bottom, 16)
-                        Divider().padding(.leading, 16)
-                        HStack { Text("支付方式"); Spacer(); Menu { ForEach(["微信", "支付宝", "银行卡", "现金", "Apple Pay"], id: \.self) { item in Button(item) { payment = item } } } label: { Text(payment.isEmpty ? "选择" : payment).foregroundStyle(.secondary) } }.padding(16)
-                        TextField("其他支付方式（可填写）", text: $payment).padding(.horizontal, 16).padding(.bottom, 16)
-                        if !platform.isEmpty { Divider().padding(.leading, 16); TextField("旧版平台", text: $platform).padding(16) }
-                        Divider().padding(.leading, 16)
-                        TextField("备注（选填）", text: $note).padding(16)
-                    }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
-                    }.padding(16).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                    moreFields
                     if let error { Text(error).font(.footnote).foregroundStyle(.red) }
                 }.padding(20).padding(.bottom, 24)
             }.background(Color(uiColor: .systemGroupedBackground))
@@ -140,6 +120,37 @@ struct EntryEditor: View {
                 .alert("已记录", isPresented: $saved) { Button("好", role: .cancel) {} } message: { Text("账目已保存。") }
                 .alert("无法保存", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("好", role: .cancel) { error = nil } } message: { Text(error ?? "") }
         }
+    }
+    private var categoryGrid: some View {
+        LazyVGrid(columns: columns, spacing: 14) {
+            ForEach(visibleCategories) { item in
+                Button { if category != item.name { detail = "" }; category = item.name; amountFocused = false } label: {
+                    VStack(spacing: 6) {
+                        Text(item.emoji).font(.title2).frame(width: 52, height: 52)
+                            .background(category == item.name ? Color.accentColor.opacity(0.2) : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 17))
+                            .overlay(RoundedRectangle(cornerRadius: 17).stroke(category == item.name ? Color.accentColor : .clear, lineWidth: 2))
+                        Text(item.name).font(.caption).foregroundStyle(.primary).lineLimit(1)
+                    }.frame(maxWidth: .infinity)
+                }.buttonStyle(.plain).accessibilityLabel("\(item.name)\(category == item.name ? "，已选择" : "")")
+                    .contextMenu { if custom.contains(item) { Button("删除自定义分类", role: .destructive) { remove(item) } } }
+            }
+        }
+    }
+    private var moreFields: some View {
+        DisclosureGroup("更多信息（选填）") {
+            VStack(spacing: 0) {
+                DatePicker("日期", selection: $date, displayedComponents: .date).padding(16)
+                Divider()
+                HStack { Text("购买平台"); Spacer(); Menu { ForEach(["淘宝", "京东", "拼多多", "美团", "线下"], id: \.self) { item in Button(item) { merchant = item } } } label: { Text(merchant.isEmpty ? "选择" : merchant).foregroundStyle(.secondary) } }.padding(16)
+                TextField("其他购买平台（可填写）", text: $merchant).padding(.horizontal, 16).padding(.bottom, 16)
+                Divider()
+                HStack { Text("支付方式"); Spacer(); Menu { ForEach(["微信", "支付宝", "银行卡", "现金", "Apple Pay"], id: \.self) { item in Button(item) { payment = item } } } label: { Text(payment.isEmpty ? "选择" : payment).foregroundStyle(.secondary) } }.padding(16)
+                TextField("其他支付方式（可填写）", text: $payment).padding(.horizontal, 16).padding(.bottom, 16)
+                if !platform.isEmpty { Divider(); TextField("旧版平台", text: $platform).padding(16) }
+                Divider()
+                TextField("备注（选填）", text: $note).padding(16)
+            }
+        }.padding(16).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
     }
     private func addCategory() {
         let name = String(customName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(16))
