@@ -7,6 +7,8 @@ struct Entry: Identifiable, Codable {
     var note: String
     var date: Date
     var income: Bool
+    var detail: String? = nil
+    var platform: String? = nil
 }
 
 @MainActor final class Ledger: ObservableObject {
