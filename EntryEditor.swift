@@ -31,6 +31,9 @@ struct EntryEditor: View {
     @State private var income: Bool
     @State private var detail: String
     @State private var platform: String
+    @State private var merchant: String
+    @State private var payment: String
+    @State private var showAllCategories = false
     @State private var error: String?
     @State private var showCustom = false
     @State private var customName = ""
@@ -50,6 +53,9 @@ struct EntryEditor: View {
         _income = State(initialValue: entry?.income ?? false)
         _detail = State(initialValue: entry?.detail ?? "")
         _platform = State(initialValue: entry?.platform ?? "")
+        _merchant = State(initialValue: entry?.merchant ?? "")
+        _payment = State(initialValue: entry?.payment ?? "")
+        _showAllCategories = State(initialValue: entry != nil)
     }
     var body: some View {
         NavigationStack {
@@ -68,7 +74,7 @@ struct EntryEditor: View {
                     }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
                     HStack { Text("分类").font(.headline); Spacer(); Button { customName = ""; customEmoji = "✨"; showCustom = true } label: { Label("自定义", systemImage: "plus") }.font(.subheadline) }
                     LazyVGrid(columns: columns, spacing: 14) {
-                        ForEach(categories) { item in
+                        ForEach(showAllCategories ? categories : Array(categories.prefix(8)) + categories.filter { $0.name == category && !Array(categories.prefix(8)).contains($0) }) { item in
                             Button { if category != item.name { detail = "" }; category = item.name; amountFocused = false } label: {
                                 VStack(spacing: 6) {
                                     Text(item.emoji).font(.title2).frame(width: 52, height: 52)
@@ -80,6 +86,8 @@ struct EntryEditor: View {
                                 .contextMenu { if custom.contains(item) { Button("删除自定义分类", role: .destructive) { remove(item) } } }
                         }
                     }
+                    Button(showAllCategories ? "收起分类" : "查看全部分类（\(categories.count)）") { withAnimation { showAllCategories.toggle() } }
+                        .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).padding(.vertical, 8)
                     if !category.isEmpty && !categories.contains(where: { $0.name == category }) { Text("原有分类：\(category)").font(.subheadline).foregroundStyle(.secondary) }
                     if !category.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
@@ -92,17 +100,26 @@ struct EntryEditor: View {
                             TextField("其他细分类（可自己填写）", text: $detail).textFieldStyle(.roundedBorder)
                         }.padding(18).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
                     }
+                    DisclosureGroup("更多信息（选填）") {
                     VStack(spacing: 0) {
                         DatePicker("日期", selection: $date, displayedComponents: .date).padding(16)
                         Divider().padding(.leading, 16)
-                        HStack { Text("平台"); Spacer(); Menu { ForEach(["微信", "支付宝", "银行卡", "现金", "Apple Pay", "其他"], id: \.self) { item in Button(item) { platform = item } } } label: { Text(platform.isEmpty ? "选择或填写" : platform).foregroundStyle(.secondary) } }.padding(16)
-                        TextField("支付或收入平台（可选）", text: $platform).padding(.horizontal, 16).padding(.bottom, 16)
+                        HStack { Text("购买平台"); Spacer(); Menu { ForEach(["淘宝", "京东", "拼多多", "美团", "线下"], id: \.self) { item in Button(item) { merchant = item } } } label: { Text(merchant.isEmpty ? "选择" : merchant).foregroundStyle(.secondary) } }.padding(16)
+                        TextField("其他购买平台（可填写）", text: $merchant).padding(.horizontal, 16).padding(.bottom, 16)
+                        Divider().padding(.leading, 16)
+                        HStack { Text("支付方式"); Spacer(); Menu { ForEach(["微信", "支付宝", "银行卡", "现金", "Apple Pay"], id: \.self) { item in Button(item) { payment = item } } } label: { Text(payment.isEmpty ? "选择" : payment).foregroundStyle(.secondary) } }.padding(16)
+                        TextField("其他支付方式（可填写）", text: $payment).padding(.horizontal, 16).padding(.bottom, 16)
+                        if !platform.isEmpty { Divider().padding(.leading, 16); TextField("旧版平台", text: $platform).padding(16) }
                         Divider().padding(.leading, 16)
                         TextField("备注（选填）", text: $note).padding(16)
                     }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                    }.padding(16).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
                     if let error { Text(error).font(.footnote).foregroundStyle(.red) }
                 }.padding(20).padding(.bottom, 24)
             }.background(Color(uiColor: .systemGroupedBackground))
+                .sensoryFeedback(.selection, trigger: amount)
+                .sensoryFeedback(.selection, trigger: category)
+                .sensoryFeedback(.success, trigger: saved)
                 .safeAreaInset(edge: .bottom) {
                     Button(action: save) { Text(entry == nil ? "保存账目" : "保存修改").fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 8) }
                         .buttonStyle(.borderedProminent).controlSize(.large).padding(.horizontal, 20).padding(.vertical, 8)
@@ -141,17 +158,17 @@ struct EntryEditor: View {
         let parts = clean.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count <= 2, !clean.isEmpty, clean.allSatisfy({ $0.isNumber || $0 == "." }), parts.count == 1 || parts[1].count <= 2, let value = Decimal(string: clean, locale: Locale(identifier: "en_US_POSIX")), value > 0, value <= 999999999 else { error = "请输入大于零的金额，最多两位小数。"; return }
         guard !category.isEmpty else { error = "请选择分类。"; return }
-        let updated = Entry(id: entry?.id ?? UUID(), amount: value, category: category, note: note.trimmingCharacters(in: .whitespacesAndNewlines), date: date, income: income, detail: detail.trimmingCharacters(in: .whitespacesAndNewlines), platform: platform.trimmingCharacters(in: .whitespacesAndNewlines))
+        let updated = Entry(id: entry?.id ?? UUID(), amount: value, category: category, note: note.trimmingCharacters(in: .whitespacesAndNewlines), date: date, income: income, detail: detail.trimmingCharacters(in: .whitespacesAndNewlines), platform: platform.trimmingCharacters(in: .whitespacesAndNewlines), merchant: merchant.trimmingCharacters(in: .whitespacesAndNewlines), payment: payment.trimmingCharacters(in: .whitespacesAndNewlines))
         var all = ledger.entries
         if let index = all.firstIndex(where: { $0.id == updated.id }) { all[index] = updated } else { all.append(updated) }
-        if ledger.save(all) { if embedded { amount = ""; note = ""; category = ""; detail = ""; platform = ""; date = Date(); error = nil; amountFocused = false; saved = true } else { dismiss() } }
+        if ledger.save(all) { if embedded { amount = ""; note = ""; category = ""; detail = ""; platform = ""; merchant = ""; payment = ""; date = Date(); error = nil; amountFocused = false; saved = true } else { dismiss() } }
         else { error = "保存失败，请重试。" }
     }
     private var detailOptions: [String] {
         let options: [String: [String]] = [
             "餐饮": ["早餐", "午餐", "晚餐", "外卖", "夜宵"], "买菜": ["蔬菜", "水果", "肉蛋", "超市"],
             "咖啡饮品": ["咖啡", "奶茶", "饮料"], "交通": ["地铁", "公交", "火车", "共享单车"],
-            "购物": ["淘宝", "京东", "拼多多", "线下", "其他"], "住房": ["房租", "物业", "维修"],
+            "购物": ["日用品", "服饰", "电子产品", "礼物", "其他"], "住房": ["房租", "物业", "维修"],
             "水电": ["水费", "电费", "燃气"], "娱乐": ["游戏", "电影", "音乐", "聚会"],
             "学习": ["课程", "书籍", "文具", "考试"], "医疗": ["挂号", "药品", "检查"],
             "旅行": ["机票", "住宿", "门票"], "订阅": ["软件", "影音", "云服务"],
