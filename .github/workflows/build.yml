@@ -1,0 +1,36 @@
+name: Build unsigned IPA
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Generate project
+        run: |
+          set -euo pipefail
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+          xcodegen generate
+      - name: Build and package
+        run: |
+          set -euo pipefail
+          xcodebuild -project SimpleLedger.xcodeproj -scheme SimpleLedger -configuration Release -derivedDataPath "$RUNNER_TEMP/build" -destination 'generic/platform=iOS' build CODE_SIGNING_ALLOWED=NO
+          mkdir -p "$RUNNER_TEMP/package/Payload"
+          cp -R "$RUNNER_TEMP/build/Build/Products/Release-iphoneos/SimpleLedger.app" "$RUNNER_TEMP/package/Payload/"
+          cd "$RUNNER_TEMP/package"
+          zip -qr SimpleLedger-unsigned.ipa Payload
+          unzip -t SimpleLedger-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SimpleLedger-unsigned
+          path: ${{ runner.temp }}/package/SimpleLedger-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
+
