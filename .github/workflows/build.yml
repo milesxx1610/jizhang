@@ -16,6 +16,12 @@ jobs:
       - name: Generate project
         run: |
           set -euo pipefail
+          ls -d /Applications/Xcode*.app
+          XCODE_PATH=$(find /Applications -maxdepth 1 -name 'Xcode_26*.app' | sort -V | tail -n 1)
+          test -n "$XCODE_PATH" || { echo 'Xcode 26 is required'; exit 1; }
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          xcodebuild -version
+          swift Icon.swift
           if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
           xcodegen generate
       - name: Build and package
