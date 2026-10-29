@@ -9,6 +9,7 @@ targets:
     sources:
       - MoneyApp.swift
       - LedgerTabs.swift
+      - EntryEditor.swift
       - Assets.xcassets
     settings:
       base:
