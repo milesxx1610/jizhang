@@ -10,11 +10,12 @@ private func sum(_ entries: [Entry], income: Bool) -> Decimal { entries.filter {
 struct LedgerTabs: View {
     @EnvironmentObject private var ledger: Ledger
     @State private var target: EditorTarget?
+    @State private var selected = 1
     var body: some View {
-        TabView {
-            Dashboard(target: $target).tabItem { Label("明细", systemImage: "list.bullet.rectangle") }
-            Insights().tabItem { Label("统计", systemImage: "chart.bar.xaxis") }
-            Preferences().tabItem { Label("设置", systemImage: "gearshape") }
+        TabView(selection: $selected) {
+            Dashboard(target: $target).tabItem { Label("明细", systemImage: "list.bullet.rectangle") }.tag(0)
+            EntryEditor(entry: nil, embedded: true).tabItem { Label("记账", systemImage: "plus.circle.fill") }.tag(1)
+            Insights().tabItem { Label("统计", systemImage: "chart.bar.xaxis") }.tag(2)
         }
         .tint(accent)
         .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger) }
@@ -41,7 +42,7 @@ private struct Dashboard: View {
                     if budget > 0 { budgetCard }
                     HStack(alignment: .firstTextBaseline) { Text("账目明细").font(.title3.bold()); Spacer(); Text("\(visible.count) 笔").font(.subheadline).foregroundStyle(.secondary) }
                     if visible.isEmpty {
-                        ContentUnavailableView(search.isEmpty ? "还没有账目" : "没有找到结果", systemImage: search.isEmpty ? "tray" : "magnifyingglass", description: Text(search.isEmpty ? "从右上角的加号开始记账" : "试试其他关键词"))
+                        ContentUnavailableView(search.isEmpty ? "还没有账目" : "没有找到结果", systemImage: search.isEmpty ? "tray" : "magnifyingglass", description: Text(search.isEmpty ? "点击底部记账按钮记录收支" : "试试其他关键词"))
                     } else {
                         LazyVStack(alignment: .leading, spacing: 20) {
                             ForEach(days, id: \.self) { day in
@@ -109,9 +110,14 @@ private struct NativeMonthControls: ViewModifier {
 
 private struct EntryRow: View {
     let entry: Entry
+    @AppStorage("customCategories") private var customJSON = "[]"
+    private var emoji: String {
+        let custom = (try? JSONDecoder().decode([CategoryItem].self, from: Data(customJSON.utf8))) ?? []
+        return (expenseCategories + incomeCategories + custom).first { $0.name == entry.category && $0.income == entry.income }?.emoji ?? "📌"
+    }
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: entry.income ? "arrow.down.left" : "arrow.up.right").font(.headline).foregroundStyle(entry.income ? accent : .orange)
+            Text(emoji).font(.title3)
                 .frame(width: 42, height: 42).background((entry.income ? accent : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
             VStack(alignment: .leading, spacing: 5) { Text(entry.category).font(.body.weight(.medium)); if !entry.note.isEmpty { Text(entry.note).font(.caption).foregroundStyle(.secondary).lineLimit(1) } }
             Spacer(minLength: 4)
@@ -123,6 +129,7 @@ private struct EntryRow: View {
 private struct Insights: View {
     @EnvironmentObject private var ledger: Ledger
     @State private var month = Date()
+    @State private var showingSettings = false
     private var items: [Entry] { monthItems(ledger.entries, month) }
     private var categories: [(name: String, value: Double)] {
         let groups = Dictionary(grouping: items.filter { !$0.income }, by: \.category)
@@ -145,6 +152,8 @@ private struct Insights: View {
                     Text("按账目分类汇总，仅统计所选月份的支出。 ").font(.footnote).foregroundStyle(.secondary)
                 }.padding(20)
             }.background(Color(uiColor: .systemGroupedBackground)).navigationTitle("统计")
+                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showingSettings = true } label: { Image(systemName: "gearshape") }.accessibilityLabel("设置") } }
+                .sheet(isPresented: $showingSettings) { Preferences() }
         }.tint(accent)
     }
     private func shift(_ n: Int) { if let next = Calendar.current.date(byAdding: .month, value: n, to: month) { month = next } }
