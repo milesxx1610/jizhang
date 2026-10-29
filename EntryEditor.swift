@@ -29,6 +29,8 @@ struct EntryEditor: View {
     @State private var note: String
     @State private var date: Date
     @State private var income: Bool
+    @State private var detail: String
+    @State private var platform: String
     @State private var error: String?
     @State private var showCustom = false
     @State private var customName = ""
@@ -46,24 +48,28 @@ struct EntryEditor: View {
         _note = State(initialValue: entry?.note ?? "")
         _date = State(initialValue: entry?.date ?? Date())
         _income = State(initialValue: entry?.income ?? false)
+        _detail = State(initialValue: entry?.detail ?? "")
+        _platform = State(initialValue: entry?.platform ?? "")
     }
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    HStack { VStack(alignment: .leading, spacing: 4) { Text("记录每一笔").font(.title2.bold()); Text("让每一份收支都有迹可循").font(.subheadline).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "sparkles").foregroundStyle(Color.accentColor) }
                     Picker("类型", selection: $income) { Text("支出").tag(false); Text("收入").tag(true) }.pickerStyle(.segmented)
-                        .onChange(of: income) { _, _ in category = "" }
+                        .onChange(of: income) { _, _ in category = ""; detail = "" }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("金额").font(.subheadline).foregroundStyle(.secondary)
                         HStack(alignment: .firstTextBaseline) {
                             Text("¥").font(.title2.weight(.medium)).foregroundStyle(.secondary)
                             TextField("0.00", text: $amount).keyboardType(.decimalPad).focused($amountFocused).font(.system(size: 38, weight: .bold, design: .rounded)).accessibilityLabel("金额")
                         }
-                    }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22))
+                        HStack { Image(systemName: "calendar"); Text(date, format: .dateTime.year().month().day()); Spacer(); Text(income ? "收入" : "支出") }.font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+                    }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
                     HStack { Text("分类").font(.headline); Spacer(); Button { customName = ""; customEmoji = "✨"; showCustom = true } label: { Label("自定义", systemImage: "plus") }.font(.subheadline) }
                     LazyVGrid(columns: columns, spacing: 14) {
                         ForEach(categories) { item in
-                            Button { category = item.name; amountFocused = false } label: {
+                            Button { if category != item.name { detail = "" }; category = item.name; amountFocused = false } label: {
                                 VStack(spacing: 6) {
                                     Text(item.emoji).font(.title2).frame(width: 52, height: 52)
                                         .background(category == item.name ? Color.accentColor.opacity(0.2) : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 17))
@@ -75,8 +81,22 @@ struct EntryEditor: View {
                         }
                     }
                     if !category.isEmpty && !categories.contains(where: { $0.name == category }) { Text("原有分类：\(category)").font(.subheadline).foregroundStyle(.secondary) }
+                    if !category.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack { Text("细分类").font(.headline); Text("可选").font(.caption).foregroundStyle(.secondary) }
+                            if !detailOptions.isEmpty {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack { ForEach(detailOptions, id: \.self) { item in Button(item) { detail = item } .buttonStyle(.bordered).tint(detail == item ? Color.accentColor : .secondary) } }
+                                }
+                            }
+                            TextField("其他细分类（可自己填写）", text: $detail).textFieldStyle(.roundedBorder)
+                        }.padding(18).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                    }
                     VStack(spacing: 0) {
                         DatePicker("日期", selection: $date, displayedComponents: .date).padding(16)
+                        Divider().padding(.leading, 16)
+                        HStack { Text("平台"); Spacer(); Menu { ForEach(["微信", "支付宝", "银行卡", "现金", "Apple Pay", "其他"], id: \.self) { item in Button(item) { platform = item } } } label: { Text(platform.isEmpty ? "选择或填写" : platform).foregroundStyle(.secondary) } }.padding(16)
+                        TextField("支付或收入平台（可选）", text: $platform).padding(.horizontal, 16).padding(.bottom, 16)
                         Divider().padding(.leading, 16)
                         TextField("备注（选填）", text: $note).padding(16)
                     }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
@@ -121,11 +141,23 @@ struct EntryEditor: View {
         let parts = clean.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count <= 2, !clean.isEmpty, clean.allSatisfy({ $0.isNumber || $0 == "." }), parts.count == 1 || parts[1].count <= 2, let value = Decimal(string: clean, locale: Locale(identifier: "en_US_POSIX")), value > 0, value <= 999999999 else { error = "请输入大于零的金额，最多两位小数。"; return }
         guard !category.isEmpty else { error = "请选择分类。"; return }
-        let updated = Entry(id: entry?.id ?? UUID(), amount: value, category: category, note: note.trimmingCharacters(in: .whitespacesAndNewlines), date: date, income: income)
+        let updated = Entry(id: entry?.id ?? UUID(), amount: value, category: category, note: note.trimmingCharacters(in: .whitespacesAndNewlines), date: date, income: income, detail: detail.trimmingCharacters(in: .whitespacesAndNewlines), platform: platform.trimmingCharacters(in: .whitespacesAndNewlines))
         var all = ledger.entries
         if let index = all.firstIndex(where: { $0.id == updated.id }) { all[index] = updated } else { all.append(updated) }
-        if ledger.save(all) { if embedded { amount = ""; note = ""; category = ""; date = Date(); error = nil; amountFocused = false; saved = true } else { dismiss() } }
+        if ledger.save(all) { if embedded { amount = ""; note = ""; category = ""; detail = ""; platform = ""; date = Date(); error = nil; amountFocused = false; saved = true } else { dismiss() } }
         else { error = "保存失败，请重试。" }
+    }
+    private var detailOptions: [String] {
+        let options: [String: [String]] = [
+            "餐饮": ["早餐", "午餐", "晚餐", "外卖", "夜宵"], "买菜": ["蔬菜", "水果", "肉蛋", "超市"],
+            "咖啡饮品": ["咖啡", "奶茶", "饮料"], "交通": ["地铁", "公交", "火车", "共享单车"],
+            "购物": ["淘宝", "京东", "拼多多", "线下", "其他"], "住房": ["房租", "物业", "维修"],
+            "水电": ["水费", "电费", "燃气"], "娱乐": ["游戏", "电影", "音乐", "聚会"],
+            "学习": ["课程", "书籍", "文具", "考试"], "医疗": ["挂号", "药品", "检查"],
+            "旅行": ["机票", "住宿", "门票"], "订阅": ["软件", "影音", "云服务"],
+            "工资": ["基本工资", "绩效", "补贴"], "兼职": ["项目", "劳务"], "退款": ["购物退款", "其他退款"]
+        ]
+        return options[category] ?? []
     }
 }
 
