@@ -14,6 +14,10 @@ struct Entry: Identifiable, Codable {
     @Published var error: String?
     private var loadFailed = false
     private let file = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("ledger.json")
+    func exportData() throws -> Data {
+        guard !loadFailed else { throw CocoaError(.fileReadCorruptFile) }
+        return try JSONEncoder().encode(entries)
+    }
     init() {
         guard FileManager.default.fileExists(atPath: file.path) else { return }
         do { entries = try JSONDecoder().decode([Entry].self, from: Data(contentsOf: file)) }
@@ -32,7 +36,7 @@ struct Entry: Identifiable, Codable {
 
 @main struct MoneyApp: App {
     @StateObject private var ledger = Ledger()
-    var body: some Scene { WindowGroup { Home().environmentObject(ledger) } }
+    var body: some Scene { WindowGroup { LedgerTabs().environmentObject(ledger) } }
 }
 
 struct EditorTarget: Identifiable { let id = UUID(); var entry: Entry? }
