@@ -31,7 +31,7 @@ private struct Dashboard: View {
     @State private var search = ""
     @AppStorage("monthlyBudget") private var budget = 0.0
     private var items: [Entry] { monthItems(ledger.entries, month) }
-    private var visible: [Entry] { search.isEmpty ? items : items.filter { $0.category.localizedCaseInsensitiveContains(search) || $0.note.localizedCaseInsensitiveContains(search) } }
+    private var visible: [Entry] { search.isEmpty ? items : items.filter { [$0.category, $0.note, $0.detail ?? "", $0.platform ?? "", $0.merchant ?? "", $0.payment ?? ""].contains { $0.localizedCaseInsensitiveContains(search) } } }
     private var days: [Date] { Array(Set(visible.map { Calendar.current.startOfDay(for: $0.date) })).sorted(by: >) }
     var body: some View {
         NavigationStack {
@@ -119,7 +119,7 @@ private struct EntryRow: View {
         HStack(spacing: 12) {
             Text(emoji).font(.title3)
                 .frame(width: 42, height: 42).background((entry.income ? accent : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
-            VStack(alignment: .leading, spacing: 5) { Text(entry.category).font(.body.weight(.medium)); let subtitle = [entry.detail ?? "", entry.platform ?? "", entry.note].filter { !$0.isEmpty }.joined(separator: " · "); if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1) } }
+            VStack(alignment: .leading, spacing: 5) { Text(entry.category).font(.body.weight(.medium)); let subtitle = [entry.detail ?? "", entry.merchant ?? "", entry.payment ?? "", entry.platform ?? "", entry.note].filter { !$0.isEmpty }.joined(separator: " · "); if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1) } }
             Spacer(minLength: 4)
             Text((entry.income ? "+" : "−") + moneyText(entry.amount)).font(.body.weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
         }.padding(14).contentShape(Rectangle())
@@ -165,6 +165,10 @@ private struct Preferences: View {
     @State private var input = ""
     @State private var message = false
     @State private var exporting = false
+    @State private var importing = false
+    @State private var pendingBackup: LedgerBackup?
+    @State private var importError: String?
+    @State private var restored = false
     @State private var document = LedgerDocument(data: Data())
     var body: some View {
         NavigationStack {
@@ -177,12 +181,30 @@ private struct Preferences: View {
                 Section("数据与隐私") {
                     Label("数据保存在本机", systemImage: "iphone")
                     Button("导出账目备份") { do { document = LedgerDocument(data: try ledger.exportData()); exporting = true } catch { ledger.error = "读取账目失败，无法导出。" } }
-                    Text("备份文件包含账目，请妥善保管。本版本暂不支持导入；删除 App 可能导致本地账目丢失。") .font(.footnote).foregroundStyle(.secondary)
+                    Button("导入备份") { importing = true }
+                    Text("备份包含账目、自定义分类和预算；导入会替换当前数据。旧版仅账目备份也可导入，但不会更改当前分类和预算。请妥善保管备份；删除 App 可能导致本地数据丢失。") .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("关于") { LabeledContent("版本", value: "2.0 测试版") }
             }.navigationTitle("设置").onAppear { input = budget > 0 ? String(format: "%.2f", budget) : "" }
                 .alert("预算已保存", isPresented: $message) { Button("好", role: .cancel) {} }
                 .fileExporter(isPresented: $exporting, document: document, contentType: .json, defaultFilename: "记账备份") { result in if case .failure = result { ledger.error = "导出失败，请重试。" } }
+                .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
+                    do {
+                        let url = try result.get()
+                        let access = url.startAccessingSecurityScopedResource()
+                        defer { if access { url.stopAccessingSecurityScopedResource() } }
+                        pendingBackup = try ledger.decodeBackup(Data(contentsOf: url))
+                    } catch { importError = "无法读取或验证备份，请检查文件。当前数据没有改变。" }
+                }
+                .alert("替换当前数据？", isPresented: Binding(get: { pendingBackup != nil }, set: { if !$0 { pendingBackup = nil } })) {
+                    Button("导入并替换", role: .destructive) {
+                        if let backup = pendingBackup { do { try ledger.restore(backup); restored = true } catch { importError = "导入失败，当前账目未被替换。" } }
+                        pendingBackup = nil
+                    }
+                    Button("取消", role: .cancel) { pendingBackup = nil }
+                } message: { Text("将导入 \(pendingBackup?.entries.count ?? 0) 笔账目，并替换当前账目。建议先导出当前备份。") }
+                .alert("导入完成", isPresented: $restored) { Button("好", role: .cancel) {} }
+                .alert("导入失败", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) { Button("好", role: .cancel) { importError = nil } } message: { Text(importError ?? "") }
         }
     }
 }
