@@ -81,10 +81,13 @@ struct EntryEditor: View {
                         TextField("备注（选填）", text: $note).padding(16)
                     }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
                     if let error { Text(error).font(.footnote).foregroundStyle(.red) }
-                    Button(action: save) { Text(entry == nil ? "保存账目" : "保存修改").fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 8) }
-                        .buttonStyle(.borderedProminent).controlSize(.large)
                 }.padding(20).padding(.bottom, 24)
             }.background(Color(uiColor: .systemGroupedBackground))
+                .safeAreaInset(edge: .bottom) {
+                    Button(action: save) { Text(entry == nil ? "保存账目" : "保存修改").fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 8) }
+                        .buttonStyle(.borderedProminent).controlSize(.large).padding(.horizontal, 20).padding(.vertical, 8)
+                        .background(.regularMaterial)
+                }
                 .navigationTitle(entry == nil ? "记一笔" : "编辑账目")
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
                 .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
@@ -98,6 +101,7 @@ struct EntryEditor: View {
                     }.presentationDetents([.medium, .large])
                 }
                 .alert("已记录", isPresented: $saved) { Button("好", role: .cancel) {} } message: { Text("账目已保存。") }
+                .alert("无法保存", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("好", role: .cancel) { error = nil } } message: { Text(error ?? "") }
         }
     }
     private func addCategory() {
