@@ -12,13 +12,15 @@ struct Entry: Identifiable, Codable {
 @MainActor final class Ledger: ObservableObject {
     @Published var entries: [Entry] = []
     @Published var error: String?
+    private var loadFailed = false
     private let file = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("ledger.json")
     init() {
         guard FileManager.default.fileExists(atPath: file.path) else { return }
         do { entries = try JSONDecoder().decode([Entry].self, from: Data(contentsOf: file)) }
-        catch { self.error = "账目读取失败。请勿删除 App，以免丢失数据。" }
+        catch { loadFailed = true; self.error = "账目读取失败。请勿删除 App，以免丢失数据。" }
     }
     func save(_ updated: [Entry]) -> Bool {
+        guard !loadFailed else { error = "账目读取失败，为保护原数据已停止保存。"; return false }
         do {
             let data = try JSONEncoder().encode(updated)
             try data.write(to: file, options: .atomic)
