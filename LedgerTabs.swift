@@ -119,7 +119,7 @@ private struct EntryRow: View {
         HStack(spacing: 12) {
             Text(emoji).font(.title3)
                 .frame(width: 42, height: 42).background((entry.income ? accent : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
-            VStack(alignment: .leading, spacing: 5) { Text(entry.category).font(.body.weight(.medium)); if !entry.note.isEmpty { Text(entry.note).font(.caption).foregroundStyle(.secondary).lineLimit(1) } }
+            VStack(alignment: .leading, spacing: 5) { Text(entry.category).font(.body.weight(.medium)); let subtitle = [entry.detail ?? "", entry.platform ?? "", entry.note].filter { !$0.isEmpty }.joined(separator: " · "); if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1) } }
             Spacer(minLength: 4)
             Text((entry.income ? "+" : "−") + moneyText(entry.amount)).font(.body.weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
         }.padding(14).contentShape(Rectangle())
