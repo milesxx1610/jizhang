@@ -9,6 +9,15 @@ struct Entry: Identifiable, Codable {
     var income: Bool
     var detail: String? = nil
     var platform: String? = nil
+    var merchant: String? = nil
+    var payment: String? = nil
+}
+
+struct LedgerBackup: Codable {
+    var formatVersion: Int
+    var entries: [Entry]
+    var customCategories: [CategoryItem]
+    var monthlyBudget: Double
 }
 
 @MainActor final class Ledger: ObservableObject {
@@ -18,7 +27,37 @@ struct Entry: Identifiable, Codable {
     private let file = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("ledger.json")
     func exportData() throws -> Data {
         guard !loadFailed else { throw CocoaError(.fileReadCorruptFile) }
-        return try JSONEncoder().encode(entries)
+        let json = UserDefaults.standard.string(forKey: "customCategories") ?? "[]"
+        let categories = try JSONDecoder().decode([CategoryItem].self, from: Data(json.utf8))
+        return try JSONEncoder().encode(LedgerBackup(formatVersion: 1, entries: entries, customCategories: categories, monthlyBudget: UserDefaults.standard.double(forKey: "monthlyBudget")))
+    }
+    func decodeBackup(_ data: Data) throws -> LedgerBackup {
+        let decoder = JSONDecoder()
+        let backup: LedgerBackup
+        if let legacy = try? decoder.decode([Entry].self, from: data) {
+            let current = UserDefaults.standard.string(forKey: "customCategories") ?? "[]"
+            backup = LedgerBackup(formatVersion: 1, entries: legacy, customCategories: try decoder.decode([CategoryItem].self, from: Data(current.utf8)), monthlyBudget: UserDefaults.standard.double(forKey: "monthlyBudget"))
+        } else {
+            backup = try decoder.decode(LedgerBackup.self, from: data)
+        }
+        guard backup.formatVersion == 1, backup.monthlyBudget.isFinite, backup.monthlyBudget >= 0, backup.monthlyBudget <= 999999999,
+              Set(backup.entries.map(\.id)).count == backup.entries.count,
+              backup.entries.allSatisfy({ $0.amount > 0 && $0.amount <= 999999999 && !$0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
+              backup.customCategories.allSatisfy({ !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
+              Set(backup.customCategories.map(\.id)).count == backup.customCategories.count else { throw CocoaError(.fileReadCorruptFile) }
+        return backup
+    }
+    func restore(_ backup: LedgerBackup) throws {
+        guard !loadFailed else { throw CocoaError(.fileReadCorruptFile) }
+        let categories = try JSONEncoder().encode(backup.customCategories)
+        guard let text = String(data: categories, encoding: .utf8) else { throw CocoaError(.fileReadCorruptFile) }
+        if FileManager.default.fileExists(atPath: file.path) {
+            let previous = file.deletingLastPathComponent().appendingPathComponent("ledger-before-restore-\(UUID().uuidString).json")
+            try FileManager.default.copyItem(at: file, to: previous)
+        }
+        guard save(backup.entries) else { throw CocoaError(.fileWriteUnknown) }
+        UserDefaults.standard.set(text, forKey: "customCategories")
+        UserDefaults.standard.set(backup.monthlyBudget, forKey: "monthlyBudget")
     }
     init() {
         guard FileManager.default.fileExists(atPath: file.path) else { return }
