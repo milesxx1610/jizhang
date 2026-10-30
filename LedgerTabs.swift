@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 private let accent = Color(red: 0.12, green: 0.52, blue: 0.44)
 private func moneyText(_ value: Decimal, currency: String = "CNY") -> String { (value as NSDecimalNumber).doubleValue.formatted(.currency(code: currency)) }
 private func monthItems(_ entries: [Entry], _ date: Date) -> [Entry] { entries.filter { Calendar.current.isDate($0.date, equalTo: date, toGranularity: .month) }.sorted { $0.date > $1.date } }
-private func sum(_ entries: [Entry], income: Bool) -> Decimal { entries.filter { $0.income == income }.reduce(0) { $0 + $1.amount } }
+private func sum(_ entries: [Entry], income: Bool) -> Decimal { entries.filter { $0.income == income }.reduce(0) { $0 + ($1.cnyAmount ?? 0) } }
 
 struct LedgerTabs: View {
     @EnvironmentObject private var ledger: Ledger
@@ -29,9 +29,8 @@ private struct Dashboard: View {
     @State private var month = Date()
     @State private var deleting: Entry?
     @State private var search = ""
-    @State private var currency = "CNY"
     @AppStorage("monthlyBudget") private var budget = 0.0
-    private var items: [Entry] { monthItems(ledger.entries, month).filter { ($0.currency ?? "CNY") == currency } }
+    private var items: [Entry] { monthItems(ledger.entries, month) }
     private var visible: [Entry] { search.isEmpty ? items : items.filter { [$0.category, $0.note, $0.detail ?? "", $0.platform ?? "", $0.merchant ?? "", $0.payment ?? ""].contains { $0.localizedCaseInsensitiveContains(search) } } }
     private var days: [Date] { Array(Set(visible.map { Calendar.current.startOfDay(for: $0.date) })).sorted(by: >) }
     var body: some View {
@@ -39,9 +38,9 @@ private struct Dashboard: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     header
-                    Picker("币种", selection: $currency) { Text("人民币").tag("CNY"); Text("日元").tag("JPY"); Text("美元").tag("USD") }.pickerStyle(.segmented)
+                    if items.contains(where: { $0.cnyAmount == nil }) { Text("部分外币账目缺少汇率，未计入人民币汇总。请编辑并重新保存。") .font(.footnote).foregroundStyle(.orange) }
                     summary
-                    if budget > 0 && currency == "CNY" { budgetCard }
+                    if budget > 0 { budgetCard }
                     HStack(alignment: .firstTextBaseline) { Text("账目明细").font(.title3.bold()); Spacer(); Text("\(visible.count) 笔").font(.subheadline).foregroundStyle(.secondary) }
                     if visible.isEmpty {
                         ContentUnavailableView(search.isEmpty ? "还没有账目" : "没有找到结果", systemImage: search.isEmpty ? "tray" : "magnifyingglass", description: Text(search.isEmpty ? "点击底部记账按钮记录收支" : "试试其他关键词"))
@@ -85,7 +84,7 @@ private struct Dashboard: View {
     private var summary: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("本月支出").font(.subheadline).foregroundStyle(.secondary)
-            Text(moneyText(sum(items, income: false), currency: currency)).font(.system(size: 36, weight: .bold, design: .rounded)).minimumScaleFactor(0.6).lineLimit(1)
+            Text(moneyText(sum(items, income: false))).font(.system(size: 36, weight: .bold, design: .rounded)).minimumScaleFactor(0.6).lineLimit(1)
             Divider()
             HStack { amountLabel("收入", sum(items, income: true)); Spacer(); amountLabel("收支结余", sum(items, income: true) - sum(items, income: false)) }
         }.padding(22).frame(maxWidth: .infinity, alignment: .leading)
@@ -99,7 +98,7 @@ private struct Dashboard: View {
             Text("预算 \(moneyText(Decimal(budget))) · 已支出 \(moneyText(Decimal(spent)))").font(.caption).foregroundStyle(.secondary)
         }.padding(18).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
     }
-    private func amountLabel(_ title: String, _ amount: Decimal) -> some View { VStack(alignment: .leading, spacing: 5) { Text(title).font(.caption).foregroundStyle(.secondary); Text(moneyText(amount, currency: currency)).font(.headline).lineLimit(1).minimumScaleFactor(0.6) } }
+    private func amountLabel(_ title: String, _ amount: Decimal) -> some View { VStack(alignment: .leading, spacing: 5) { Text(title).font(.caption).foregroundStyle(.secondary); Text(moneyText(amount)).font(.headline).lineLimit(1).minimumScaleFactor(0.6) } }
     private func shift(_ offset: Int) { if let next = Calendar.current.date(byAdding: .month, value: offset, to: month) { withAnimation { month = next } } }
 }
 
@@ -121,7 +120,7 @@ private struct EntryRow: View {
         HStack(spacing: 12) {
             Text(emoji).font(.title3)
                 .frame(width: 42, height: 42).background((entry.income ? accent : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
-            VStack(alignment: .leading, spacing: 5) { Text(entry.category).font(.body.weight(.medium)); let subtitle = [entry.detail ?? "", entry.merchant ?? "", entry.payment ?? "", entry.platform ?? "", entry.note].filter { !$0.isEmpty }.joined(separator: " · "); if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1) } }
+            VStack(alignment: .leading, spacing: 5) { Text(entry.category).font(.body.weight(.medium)); let subtitle = [entry.detail ?? "", entry.merchant ?? "", entry.payment ?? "", entry.platform ?? "", entry.note].filter { !$0.isEmpty }.joined(separator: " · "); if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1) }; if let rate = entry.cnyRate, let converted = entry.cnyAmount { Text("约 \(moneyText(converted)) · 汇率 \(NSDecimalNumber(decimal: rate).stringValue) · \(entry.rateDate ?? "")").font(.caption2).foregroundStyle(.secondary) } }
             Spacer(minLength: 4)
             Text((entry.income ? "+" : "−") + moneyText(entry.amount, currency: entry.currency ?? "CNY")).font(.body.weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
         }.padding(14).contentShape(Rectangle())
@@ -132,25 +131,24 @@ private struct Insights: View {
     @EnvironmentObject private var ledger: Ledger
     @State private var month = Date()
     @State private var showingSettings = false
-    @State private var currency = "CNY"
-    private var items: [Entry] { monthItems(ledger.entries, month).filter { ($0.currency ?? "CNY") == currency } }
+    private var items: [Entry] { monthItems(ledger.entries, month) }
     private var categories: [(name: String, value: Double)] {
         let groups = Dictionary(grouping: items.filter { !$0.income }, by: \.category)
-        return groups.map { (name: $0.key, value: ($0.value.reduce(Decimal.zero) { $0 + $1.amount } as NSDecimalNumber).doubleValue) }.sorted { $0.value > $1.value }
+        return groups.map { (name: $0.key, value: ($0.value.reduce(Decimal.zero) { $0 + ($1.cnyAmount ?? 0) } as NSDecimalNumber).doubleValue) }.sorted { $0.value > $1.value }
     }
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     HStack { Button { shift(-1) } label: { Image(systemName: "chevron.left") }; Spacer(); Text(month, format: .dateTime.year().month()).font(.headline); Spacer(); Button { shift(1) } label: { Image(systemName: "chevron.right") } }.padding(.vertical, 10)
-                    Picker("币种", selection: $currency) { Text("人民币").tag("CNY"); Text("日元").tag("JPY"); Text("美元").tag("USD") }.pickerStyle(.segmented)
+                    if items.contains(where: { $0.cnyAmount == nil }) { Text("部分外币账目缺少汇率，未计入统计。") .font(.footnote).foregroundStyle(.orange) }
                     VStack(alignment: .leading, spacing: 14) {
                         Text("支出分类").font(.headline)
                         if categories.isEmpty { Text("本月暂无支出，记一笔后即可查看统计。 ").font(.subheadline).foregroundStyle(.secondary).padding(.vertical, 25) }
                         else {
                             Chart(categories, id: \.name) { item in BarMark(x: .value("金额", item.value), y: .value("分类", item.name)).foregroundStyle(accent.gradient).cornerRadius(5) }
                                 .frame(height: CGFloat(max(140, categories.count * 38)))
-                            ForEach(categories, id: \.name) { item in HStack { Text(item.name); Spacer(); Text(moneyText(Decimal(item.value), currency: currency)).monospacedDigit() }.font(.subheadline) }
+                            ForEach(categories, id: \.name) { item in HStack { Text(item.name); Spacer(); Text(moneyText(Decimal(item.value))).monospacedDigit() }.font(.subheadline) }
                         }
                     }.padding(20).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22))
                     Text("按账目分类汇总，仅统计所选月份的支出。 ").font(.footnote).foregroundStyle(.secondary)
