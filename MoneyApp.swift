@@ -12,6 +12,9 @@ struct Entry: Identifiable, Codable {
     var merchant: String? = nil
     var payment: String? = nil
     var currency: String? = nil
+    var cnyRate: Decimal? = nil
+    var rateDate: String? = nil
+    var cnyAmount: Decimal? { (currency ?? "CNY") == "CNY" ? amount : cnyRate.map { amount * $0 } }
 }
 
 struct LedgerBackup: Codable {
