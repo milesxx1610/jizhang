@@ -40,6 +40,7 @@ struct EntryEditor: View {
     @State private var customName = ""
     @State private var customEmoji = "✨"
     @State private var saved = false
+    @State private var saving = false
     @FocusState private var amountFocused: Bool
     private var custom: [CategoryItem] { (try? JSONDecoder().decode([CategoryItem].self, from: Data(customJSON.utf8))) ?? [] }
     private var categories: [CategoryItem] { (income ? incomeCategories : expenseCategories) + custom.filter { $0.income == income } }
@@ -78,6 +79,7 @@ struct EntryEditor: View {
                             TextField("0.00", text: $amount).keyboardType(.decimalPad).focused($amountFocused).font(.system(size: 38, weight: .bold, design: .rounded)).accessibilityLabel("金额")
                         }
                         DatePicker("日期", selection: $date, displayedComponents: .date).font(.caption).padding(.top, 6)
+                        if currency != "CNY" { Text("保存时获取参考汇率，按人民币统计；与实际扣款可能不同。") .font(.caption).foregroundStyle(.secondary) }
                     }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
                     HStack { Text("分类").font(.headline); Spacer(); Button(showAllCategories ? "收起" : "更多") { withAnimation(.easeInOut) { showAllCategories.toggle() } } }
                     categoryGrid
@@ -104,7 +106,7 @@ struct EntryEditor: View {
                 .sensoryFeedback(.selection, trigger: category)
                 .sensoryFeedback(.success, trigger: saved)
                 .safeAreaInset(edge: .bottom) {
-                    Button(action: save) { Text("保存").font(.headline).frame(maxWidth: .infinity).frame(height: 68).foregroundStyle(Color(uiColor: .systemBackground)).background(Color.primary, in: Capsule()) }
+                    Button { Task { await save() } } label: { Text(saving ? "正在获取汇率…" : "保存").font(.headline).frame(maxWidth: .infinity).frame(height: 68).foregroundStyle(Color(uiColor: .systemBackground)).background(Color.primary, in: Capsule()) }.disabled(saving)
                         .buttonStyle(.plain).padding(.horizontal, 20).padding(.vertical, 8)
                         .background(.regularMaterial)
                 }
@@ -171,12 +173,33 @@ struct EntryEditor: View {
         let all = custom.filter { $0 != item }
         if let data = try? JSONEncoder().encode(all), let text = String(data: data, encoding: .utf8) { customJSON = text; if category == item.name { category = "" } }
     }
-    private func save() {
+    private struct RateReply: Decodable { let date: String; let rates: [String: Decimal] }
+    @MainActor private func save() async {
         let clean = amount.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
         let parts = clean.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count <= 2, !clean.isEmpty, clean.allSatisfy({ $0.isNumber || $0 == "." }), parts.count == 1 || parts[1].count <= 2, let value = Decimal(string: clean, locale: Locale(identifier: "en_US_POSIX")), value > 0, value <= 999999999 else { error = "请输入大于零的金额，最多两位小数。"; return }
         guard !category.isEmpty else { error = "请选择分类。"; return }
-        let updated = Entry(id: entry?.id ?? UUID(), amount: value, category: category, note: note.trimmingCharacters(in: .whitespacesAndNewlines), date: date, income: income, detail: detail.trimmingCharacters(in: .whitespacesAndNewlines), platform: platform.trimmingCharacters(in: .whitespacesAndNewlines), merchant: merchant.trimmingCharacters(in: .whitespacesAndNewlines), payment: payment.trimmingCharacters(in: .whitespacesAndNewlines), currency: currency)
+        saving = true
+        defer { saving = false }
+        var rate: Decimal? = nil
+        var usedDate: String? = nil
+        if currency != "CNY" {
+            if let old = entry, old.currency == currency, Calendar.current.isDate(old.date, inSameDayAs: date), let oldRate = old.cnyRate {
+                rate = oldRate; usedDate = old.rateDate
+            } else {
+                let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = Calendar.current.timeZone; formatter.dateFormat = "yyyy-MM-dd"
+                let day = formatter.string(from: date)
+                guard let url = URL(string: "https://api.frankfurter.dev/v1/\(day)?base=\(currency)&symbols=CNY") else { error = "汇率地址无效。"; return }
+                do {
+                    let (data, response) = try await URLSession.shared.data(from: url)
+                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw URLError(.badServerResponse) }
+                    let result = try JSONDecoder().decode(RateReply.self, from: data)
+                    guard let fetched = result.rates["CNY"], fetched > 0 else { throw URLError(.cannotParseResponse) }
+                    rate = fetched; usedDate = result.date
+                } catch { self.error = "无法获取该日期的汇率，请检查网络后重试。账目尚未保存。"; return }
+            }
+        }
+        let updated = Entry(id: entry?.id ?? UUID(), amount: value, category: category, note: note.trimmingCharacters(in: .whitespacesAndNewlines), date: date, income: income, detail: detail.trimmingCharacters(in: .whitespacesAndNewlines), platform: platform.trimmingCharacters(in: .whitespacesAndNewlines), merchant: merchant.trimmingCharacters(in: .whitespacesAndNewlines), payment: payment.trimmingCharacters(in: .whitespacesAndNewlines), currency: currency, cnyRate: rate, rateDate: usedDate)
         var all = ledger.entries
         if let index = all.firstIndex(where: { $0.id == updated.id }) { all[index] = updated } else { all.append(updated) }
         if ledger.save(all) { if embedded { amount = ""; note = ""; category = ""; detail = ""; platform = ""; merchant = ""; payment = ""; date = Date(); error = nil; amountFocused = false; saved = true } else { dismiss() } }
