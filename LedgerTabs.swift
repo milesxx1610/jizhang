@@ -11,12 +11,20 @@ struct LedgerTabs: View {
     @EnvironmentObject private var ledger: Ledger
     @State private var target: EditorTarget?
     @State private var selected = 1
+    @State private var keyboardVisible = false
     var body: some View {
         TabView(selection: $selected) {
             Dashboard(target: $target).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
             EntryEditor(entry: nil, embedded: true).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
             Insights().tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
         }
+        .background(alignment: .bottom) {
+            if selected == 1 && !keyboardVisible {
+                Rectangle().fill(.regularMaterial).frame(height: 110).ignoresSafeArea(edges: .bottom)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
         .tint(accent)
         .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger) }
         .alert("提示", isPresented: Binding(get: { ledger.error != nil }, set: { if !$0 { ledger.error = nil } })) { Button("知道了") { ledger.error = nil } } message: { Text(ledger.error ?? "") }

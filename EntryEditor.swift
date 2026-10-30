@@ -187,14 +187,14 @@ struct EntryEditor: View {
     private var typeToggle: some View {
         HStack(spacing: 0) {
             ForEach([false, true], id: \.self) { value in
-                Button { withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { income = value } } label: {
+                Button { withAnimation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.9)) { income = value } } label: {
                     Text(value ? "收入" : "支出").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).frame(height: 44)
                         .foregroundStyle(income == value ? Color.white : Color.secondary)
                         .background { if income == value { Capsule().fill(selectionColor).matchedGeometryEffect(id: "type", in: typeSelection) } }
                 }.buttonStyle(.plain).accessibilityAddTraits(income == value ? .isSelected : [])
             }
         }.padding(3).background(Color(uiColor: .tertiarySystemFill), in: Capsule()).frame(maxWidth: 310).frame(maxWidth: .infinity)
-            .gesture(DragGesture(minimumDistance: 20).onEnded { value in withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { if value.translation.width < -20 { income = true } else if value.translation.width > 20 { income = false } } })
+            .gesture(DragGesture(minimumDistance: 20).onEnded { value in withAnimation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.9)) { if value.translation.width < -20 { income = true } else if value.translation.width > 20 { income = false } } })
     }
     private var categoryGrid: some View {
         ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 10) { ForEach(categories) { item in categoryButton(item) } } }
