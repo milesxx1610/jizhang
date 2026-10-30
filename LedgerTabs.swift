@@ -3,7 +3,7 @@ import Charts
 import UniformTypeIdentifiers
 
 private let accent = Color(red: 0.12, green: 0.52, blue: 0.44)
-private func moneyText(_ value: Decimal, currency: String = "CNY") -> String { (value as NSDecimalNumber).doubleValue.formatted(.currency(code: currency)) }
+private func moneyText(_ value: Decimal, currency: String = "CNY") -> String { (value as NSDecimalNumber).doubleValue.formatted(.currency(code: currency).precision(.fractionLength(2...3))) }
 private func monthItems(_ entries: [Entry], _ date: Date) -> [Entry] { entries.filter { Calendar.current.isDate($0.date, equalTo: date, toGranularity: .month) }.sorted { $0.date > $1.date } }
 private func sum(_ entries: [Entry], income: Bool) -> Decimal { entries.filter { $0.income == income }.reduce(0) { $0 + ($1.cnyAmount ?? 0) } }
 
@@ -13,9 +13,9 @@ struct LedgerTabs: View {
     @State private var selected = 1
     var body: some View {
         TabView(selection: $selected) {
-            Dashboard(target: $target).tabItem { Image(systemName: "list.bullet.rectangle").accessibilityLabel("明细") }.tag(0)
-            EntryEditor(entry: nil, embedded: true).tabItem { Image(systemName: "plus.circle.fill").accessibilityLabel("记账") }.tag(1)
-            Insights().tabItem { Image(systemName: "chart.bar.xaxis").accessibilityLabel("统计") }.tag(2)
+            Dashboard(target: $target).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
+            EntryEditor(entry: nil, embedded: true).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
+            Insights().tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
         }
         .tint(accent)
         .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger) }
