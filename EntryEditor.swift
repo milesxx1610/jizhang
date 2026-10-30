@@ -136,6 +136,7 @@ struct EntryEditor: View {
                 .safeAreaInset(edge: .bottom) {
                     Button { Task { await save() } } label: { Text(saving ? "正在获取汇率…" : "保存").font(.headline).frame(maxWidth: .infinity).frame(height: 68).foregroundStyle(Color(uiColor: .systemBackground)).background(Color(uiColor: .label), in: Capsule()) }.disabled(saving)
                         .buttonStyle(.plain).padding(.horizontal, 20).padding(.vertical, 8)
+                        .frame(maxWidth: .infinity).background(.regularMaterial)
                 }
                 .navigationTitle(embedded ? "" : "编辑账目")
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
