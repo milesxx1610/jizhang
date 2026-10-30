@@ -22,6 +22,8 @@ struct LedgerBackup: Codable {
     var entries: [Entry]
     var customCategories: [CategoryItem]
     var monthlyBudget: Double
+    var categoryOrder: String? = nil
+    var customEntryOptions: String? = nil
 }
 
 @MainActor final class Ledger: ObservableObject {
@@ -33,7 +35,7 @@ struct LedgerBackup: Codable {
         guard !loadFailed else { throw CocoaError(.fileReadCorruptFile) }
         let json = UserDefaults.standard.string(forKey: "customCategories") ?? "[]"
         let categories = try JSONDecoder().decode([CategoryItem].self, from: Data(json.utf8))
-        return try JSONEncoder().encode(LedgerBackup(formatVersion: 1, entries: entries, customCategories: categories, monthlyBudget: UserDefaults.standard.double(forKey: "monthlyBudget")))
+        return try JSONEncoder().encode(LedgerBackup(formatVersion: 1, entries: entries, customCategories: categories, monthlyBudget: UserDefaults.standard.double(forKey: "monthlyBudget"), categoryOrder: UserDefaults.standard.string(forKey: "categoryOrder"), customEntryOptions: UserDefaults.standard.string(forKey: "customEntryOptions")))
     }
     func decodeBackup(_ data: Data) throws -> LedgerBackup {
         let decoder = JSONDecoder()
@@ -49,6 +51,8 @@ struct LedgerBackup: Codable {
               backup.entries.allSatisfy({ $0.amount > 0 && $0.amount <= 999999999 && !$0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
               backup.customCategories.allSatisfy({ !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
               Set(backup.customCategories.map(\.id)).count == backup.customCategories.count else { throw CocoaError(.fileReadCorruptFile) }
+        if let order = backup.categoryOrder { _ = try decoder.decode([String].self, from: Data(order.utf8)) }
+        if let options = backup.customEntryOptions { _ = try decoder.decode([String: [String]].self, from: Data(options.utf8)) }
         return backup
     }
     func restore(_ backup: LedgerBackup) throws {
@@ -62,6 +66,8 @@ struct LedgerBackup: Codable {
         guard save(backup.entries) else { throw CocoaError(.fileWriteUnknown) }
         UserDefaults.standard.set(text, forKey: "customCategories")
         UserDefaults.standard.set(backup.monthlyBudget, forKey: "monthlyBudget")
+        if let order = backup.categoryOrder { UserDefaults.standard.set(order, forKey: "categoryOrder") }
+        if let options = backup.customEntryOptions { UserDefaults.standard.set(options, forKey: "customEntryOptions") }
     }
     init() {
         guard FileManager.default.fileExists(atPath: file.path) else { return }
