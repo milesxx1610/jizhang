@@ -84,37 +84,37 @@ struct EntryEditor: View {
         _merchant = State(initialValue: entry?.merchant ?? "")
         _payment = State(initialValue: entry?.payment ?? "")
         _currency = State(initialValue: entry?.currency ?? "CNY")
-        _showAllCategories = State(initialValue: entry != nil)
+        _showAllCategories = State(initialValue: false)
     }
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     HStack { VStack(alignment: .leading, spacing: 4) { Text("记录每一笔").font(.title2.bold()); Text("让每一份收支都有迹可循").font(.subheadline).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "sparkles").foregroundStyle(Color.accentColor) }
-                    Picker("类型", selection: $income) { Text("支出").tag(false); Text("收入").tag(true) }.pickerStyle(.segmented).controlSize(.large).scaleEffect(x: 1, y: 1.25).padding(.vertical, 5)
+                    Picker("类型", selection: $income) { Text("支出").tag(false); Text("收入").tag(true) }.pickerStyle(.segmented).controlSize(.large).frame(maxWidth: 310).frame(maxWidth: .infinity).scaleEffect(x: 1, y: 1.25).padding(.vertical, 5)
                         .onChange(of: income) { _, _ in category = ""; detail = "" }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("金额").font(.subheadline).foregroundStyle(.secondary)
                         HStack(alignment: .firstTextBaseline) {
-                            Menu { ForEach(["CNY", "JPY", "USD"], id: \.self) { code in Button(code == "CNY" ? "人民币 CNY" : code == "JPY" ? "日元 JPY" : "美元 USD") { withAnimation(.easeInOut(duration: 0.25)) { currency = code } } } } label: { Text(currency == "USD" ? "$" : currency == "JPY" ? "JPY" : "¥").font(.title2.weight(.medium)).foregroundStyle(.secondary) }.accessibilityLabel("选择货币，当前\(currency)")
+                            Menu { ForEach(["CNY", "JPY", "USD"], id: \.self) { code in Button(code == "CNY" ? "人民币 CNY" : code == "JPY" ? "日元 JPY" : "美元 USD") { currency = code } } } label: { Text(currency == "USD" ? "$" : currency == "JPY" ? "JPY" : "¥").font(.title2.weight(.medium)).foregroundStyle(.secondary).fixedSize().contentTransition(.identity).transaction { $0.animation = nil } }.accessibilityLabel("选择货币，当前\(currency)")
                             TextField("0.00", text: $amount).keyboardType(.decimalPad).focused($amountFocused).font(.system(size: 38, weight: .bold, design: .rounded)).accessibilityLabel("金额").frame(minWidth: 60)
                             if currency != "CNY", previewKey == rateKey, let rate = previewRate, let value = Decimal(string: amount.replacingOccurrences(of: ",", with: ".")), value > 0 { Text("≈ ¥\(NSDecimalNumber(decimal: value * rate).doubleValue.formatted(.number.precision(.fractionLength(2))))").font(.caption).foregroundStyle(.secondary).fixedSize() }
                         }
                         DatePicker("日期", selection: $date, displayedComponents: .date).font(.subheadline).padding(.top, 6)
                         if currency != "CNY" { HStack { Text(rateLoading ? "正在获取参考汇率…" : rateFailed ? "汇率获取失败，请检查网络。" : "按参考汇率折算，实际扣款可能不同。") .font(.caption).foregroundStyle(.secondary); if rateFailed { Button("重试") { Task { await loadPreviewRate() } }.font(.caption) } }.transition(.opacity.combined(with: .move(edge: .top))) }
-                    }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
-                    HStack { Text("分类").font(.headline); Spacer(); Button("更多") { showAllCategories = true } }
+                    }.animation(.spring(response: 0.36, dampingFraction: 0.86), value: currency != "CNY").padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
+                    HStack { Text("分类").font(.headline); Spacer(); categoryMenu }
                     categoryGrid
                     if !category.isEmpty && !categories.contains(where: { $0.name == category }) { Text("原有分类：\(category)").font(.subheadline).foregroundStyle(.secondary) }
                     if !category.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            HStack { Text("细分").font(.headline); Text("可选").font(.caption).foregroundStyle(.secondary) }
+                            Text("细分").font(.headline)
                             if !detailOptions.isEmpty {
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     HStack { ForEach(detailOptions, id: \.self) { item in Button { detail = detail == item ? "" : item } label: { Text("\(detailEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(detail == item ? selectionColor : .secondary) } }
                                 }
                             }
-                            TextField("其他细分（可填写）", text: $detail).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                            TextField("其他细分", text: $detail).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
                         }
                     }
                     platformFields
@@ -135,7 +135,7 @@ struct EntryEditor: View {
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
                 .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
                 .task(id: rateKey) { await loadPreviewRate() }
-                .sheet(isPresented: $showAllCategories) { categorySheet }
+                .sheet(isPresented: $showSort) { sortSheet }
                 .sheet(isPresented: $showCustom) {
                     NavigationStack {
                         Form {
@@ -152,6 +152,16 @@ struct EntryEditor: View {
     private var categoryGrid: some View {
         ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 10) { ForEach(categories) { item in categoryButton(item) } } }
     }
+    private var categoryMenu: some View {
+        Menu {
+            Button { customName = ""; customEmoji = "✨"; showCustom = true } label: { Label("自定义分类", systemImage: "plus.circle") }
+            Button { sortedItems = categories; showSort = true } label: { Label("调整分类顺序", systemImage: "line.3.horizontal") }
+            Divider()
+            ForEach(categories) { item in
+                Button { let same = category == item.name; category = same ? "" : item.name; detail = ""; merchant = "" } label: { Text("\(item.emoji)  \(item.name)\(category == item.name ? " ✓" : "")") }
+            }
+        } label: { Text("更多").foregroundStyle(.primary) }
+    }
     private func categoryButton(_ item: CategoryItem) -> some View {
         Button {
             let wasSelected = category == item.name
@@ -163,6 +173,7 @@ struct EntryEditor: View {
                 .background(category == item.name ? selectionColor.opacity(0.16) : Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
                 .overlay(Capsule().stroke(category == item.name ? selectionColor : .clear, lineWidth: 1.5))
         }.buttonStyle(.plain).accessibilityLabel("\(item.name)\(category == item.name ? "，已选择" : "")")
+            .contextMenu { if custom.contains(item) { Button("删除自定义分类", role: .destructive) { remove(item) } } }
     }
     private var categorySheet: some View {
         NavigationStack {
@@ -192,10 +203,10 @@ struct EntryEditor: View {
             Text("平台").font(.headline)
             if !category.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(platformOptions + savedOptions("platform").filter { !platformOptions.contains($0) }, id: \.self) { item in Button { merchant = merchant == item ? "" : item } label: { Text("\(platformEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(merchant == item ? selectionColor : .secondary) } } }
-                TextField("其他平台（选填）", text: $merchant).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                TextField("其他平台", text: $merchant).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
             }
             Text("备注").font(.headline)
-            TextField("写点什么（选填）", text: $note).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+            TextField("写点什么", text: $note).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
             if !platform.isEmpty { TextField("旧版平台", text: $platform).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14)) }
         }
     }
