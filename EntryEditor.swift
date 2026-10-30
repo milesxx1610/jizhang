@@ -42,6 +42,7 @@ struct EntryEditor: View {
     @State private var showSort = false
     @State private var showEmoji = false
     @State private var showCurrency = false
+    @State private var keyboardVisible = false
     @State private var showOptionSort = false
     @State private var optionSortKind = ""
     @State private var optionSortItems: [String] = []
@@ -136,12 +137,14 @@ struct EntryEditor: View {
                 .safeAreaInset(edge: .bottom) {
                     Button { Task { await save() } } label: { Text(saving ? "正在获取汇率…" : "保存").font(.headline).frame(maxWidth: .infinity).frame(height: 68).foregroundStyle(Color(uiColor: .systemBackground)).background(Color(uiColor: .label), in: Capsule()) }.disabled(saving)
                         .buttonStyle(.plain).padding(.horizontal, 20).padding(.vertical, 8)
-                        .frame(maxWidth: .infinity).background(.regularMaterial)
+                        .frame(maxWidth: .infinity).background { if !keyboardVisible { Rectangle().fill(.regularMaterial) } }
                 }
                 .navigationTitle(embedded ? "" : "编辑账目")
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
                 .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
                 .task(id: rateKey) { await loadPreviewRate() }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
                 .confirmationDialog("选择货币", isPresented: $showCurrency, titleVisibility: .visible) {
                     Button("人民币 CNY") { currency = "CNY" }; Button("日元 JPY") { currency = "JPY" }; Button("美元 USD") { currency = "USD" }; Button("取消", role: .cancel) {}
                 }
