@@ -21,6 +21,7 @@ let incomeCategories: [CategoryItem] = [
 struct EntryEditor: View {
     @EnvironmentObject private var ledger: Ledger
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("customCategories") private var customJSON = "[]"
     @AppStorage("categoryOrder") private var categoryOrder = "[]"
     @AppStorage("customEntryOptions") private var customOptionsJSON = "{}"
@@ -104,7 +105,15 @@ struct EntryEditor: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("金额").font(.subheadline).foregroundStyle(.secondary)
                         HStack(alignment: .firstTextBaseline) {
-                            Button { amountFocused = false; showCurrency = true } label: { Text(currency == "USD" ? "$" : currency == "JPY" ? "JPY" : "¥").font(.title2.weight(.medium)).foregroundStyle(.secondary).fixedSize().contentTransition(.identity) }.buttonStyle(.plain).accessibilityLabel("选择货币，当前\(currency)")
+                            Button { amountFocused = false; showCurrency = true } label: {
+                                Text(currency == "USD" ? "$" : currency == "JPY" ? "JPY" : "¥")
+                                    .font(.title2.weight(.medium)).foregroundStyle(.secondary)
+                                    .fixedSize().id(currency).transition(.opacity)
+                            }
+                            .buttonStyle(.plain).accessibilityLabel("选择货币，当前\(currency)")
+                            .popover(isPresented: $showCurrency, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+                                currencyPicker.presentationCompactAdaptation(.popover)
+                            }
                             TextField("0.00", text: $amount).keyboardType(.decimalPad).focused($amountFocused).font(.system(size: 38, weight: .bold, design: .rounded)).accessibilityLabel("金额").frame(minWidth: 60)
                             if currency != "CNY", previewKey == rateKey, let rate = previewRate, let value = Decimal(string: amount.replacingOccurrences(of: ",", with: ".")), value > 0 { Text("≈ ¥\(NSDecimalNumber(decimal: value * rate).doubleValue.formatted(.number.precision(.fractionLength(2))))").font(.caption).foregroundStyle(.secondary).fixedSize() }
                             if amountFocused && !amount.isEmpty { Button { amount = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.accessibilityLabel("清除金额") }
@@ -128,6 +137,7 @@ struct EntryEditor: View {
                     }
                     platformFields
                 }.padding(20).padding(.bottom, 24)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: currency != "CNY")
             }.background(Color(uiColor: .systemGroupedBackground))
                 .scrollDismissesKeyboard(.interactively)
                 .onTapGesture { amountFocused = false }
@@ -137,7 +147,7 @@ struct EntryEditor: View {
                 .safeAreaInset(edge: .bottom) {
                     Button { Task { await save() } } label: { Text(saving ? "正在获取汇率…" : "保存").font(.headline).frame(maxWidth: .infinity).frame(height: 68).foregroundStyle(Color(uiColor: .systemBackground)).background(Color(uiColor: .label), in: Capsule()) }.disabled(saving)
                         .buttonStyle(.plain).padding(.horizontal, 20).padding(.vertical, 8)
-                        .frame(maxWidth: .infinity).background { if !keyboardVisible { Rectangle().fill(.regularMaterial) } }
+                        .frame(maxWidth: .infinity).background { if !keyboardVisible { UnevenRoundedRectangle(topLeadingRadius: 10, topTrailingRadius: 10).fill(.regularMaterial) } }
                 }
                 .navigationTitle(embedded ? "" : "编辑账目")
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
@@ -145,9 +155,6 @@ struct EntryEditor: View {
                 .task(id: rateKey) { await loadPreviewRate() }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
-                .confirmationDialog("选择货币", isPresented: $showCurrency, titleVisibility: .visible) {
-                    Button("人民币 CNY") { currency = "CNY" }; Button("日元 JPY") { currency = "JPY" }; Button("美元 USD") { currency = "USD" }; Button("取消", role: .cancel) {}
-                }
                 .sheet(isPresented: $showSort) { sortSheet }
                 .sheet(isPresented: $showOptionSort) { optionSortSheet }
                 .sheet(isPresented: $showCustom) {
@@ -163,13 +170,27 @@ struct EntryEditor: View {
                 .alert("无法保存", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("好", role: .cancel) { error = nil } } message: { Text(error ?? "") }
         }
     }
+    private var currencyPicker: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("选择货币").font(.headline).padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 8)
+            ForEach([("CNY", "人民币 CNY"), ("JPY", "日元 JPY"), ("USD", "美元 USD")], id: \.0) { option in
+                Button {
+                    showCurrency = false
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) { currency = option.0 }
+                } label: {
+                    HStack { Text(option.1); Spacer(); if currency == option.0 { Image(systemName: "checkmark") } }
+                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).padding(.horizontal, 16).padding(.vertical, 12)
+                }.buttonStyle(.plain)
+            }
+        }.frame(width: 200).padding(.bottom, 8)
+    }
     private var typeToggle: some View {
         HStack(spacing: 0) {
             ForEach([false, true], id: \.self) { value in
                 Button { withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { income = value } } label: {
                     Text(value ? "收入" : "支出").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).frame(height: 44)
-                        .foregroundStyle(income == value ? Color.primary : Color.secondary)
-                        .background { if income == value { Capsule().fill(Color(uiColor: .secondarySystemGroupedBackground)).matchedGeometryEffect(id: "type", in: typeSelection) } }
+                        .foregroundStyle(income == value ? Color.white : Color.secondary)
+                        .background { if income == value { Capsule().fill(selectionColor).matchedGeometryEffect(id: "type", in: typeSelection) } }
                 }.buttonStyle(.plain).accessibilityAddTraits(income == value ? .isSelected : [])
             }
         }.padding(3).background(Color(uiColor: .tertiarySystemFill), in: Capsule()).frame(maxWidth: 310).frame(maxWidth: .infinity)
