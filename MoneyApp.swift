@@ -11,6 +11,7 @@ struct Entry: Identifiable, Codable {
     var platform: String? = nil
     var merchant: String? = nil
     var payment: String? = nil
+    var currency: String? = nil
 }
 
 struct LedgerBackup: Codable {
