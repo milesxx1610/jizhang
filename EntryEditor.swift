@@ -22,6 +22,8 @@ struct EntryEditor: View {
     @EnvironmentObject private var ledger: Ledger
     @Environment(\.dismiss) private var dismiss
     @AppStorage("customCategories") private var customJSON = "[]"
+    @AppStorage("categoryOrder") private var categoryOrder = "[]"
+    @AppStorage("customEntryOptions") private var customOptionsJSON = "{}"
     let entry: Entry?
     let embedded: Bool
     @State private var amount: String
@@ -37,19 +39,38 @@ struct EntryEditor: View {
     @State private var showAllCategories = false
     @State private var error: String?
     @State private var showCustom = false
+    @State private var showSort = false
+    @State private var showEmoji = false
+    @State private var sortedItems: [CategoryItem] = []
+    @State private var previewRate: Decimal?
+    @State private var previewKey = ""
+    @State private var previewDate: String?
+    @State private var rateLoading = false
+    @State private var rateFailed = false
     @State private var customName = ""
     @State private var customEmoji = "✨"
     @State private var saved = false
     @State private var saving = false
     @FocusState private var amountFocused: Bool
     private var custom: [CategoryItem] { (try? JSONDecoder().decode([CategoryItem].self, from: Data(customJSON.utf8))) ?? [] }
-    private var categories: [CategoryItem] { (income ? incomeCategories : expenseCategories) + custom.filter { $0.income == income } }
+    private var categories: [CategoryItem] {
+        let all = (income ? incomeCategories : expenseCategories) + custom.filter { $0.income == income }
+        let order = (try? JSONDecoder().decode([String].self, from: Data(categoryOrder.utf8))) ?? []
+        let counts = Dictionary(grouping: ledger.entries.filter { $0.income == income }, by: \.category).mapValues(\.count)
+        return all.enumerated().sorted { a, b in
+            let ai = order.firstIndex(of: a.element.id), bi = order.firstIndex(of: b.element.id)
+            if let ai, let bi { return ai < bi }; if ai != nil { return true }; if bi != nil { return false }
+            let ac = counts[a.element.name] ?? 0, bc = counts[b.element.name] ?? 0
+            return ac == bc ? a.offset < b.offset : ac > bc
+        }.map(\.element)
+    }
     private var visibleCategories: [CategoryItem] {
         if showAllCategories { return categories }
         let common = Array(categories.prefix(8))
         return common + categories.filter { $0.name == category && !common.contains($0) }
     }
-    private let columns = [GridItem(.adaptive(minimum: 68), spacing: 10)]
+    private let selectionColor = Color(red: 0.12, green: 0.52, blue: 0.44)
+    private var rateKey: String { "\(currency)-\(Calendar.current.startOfDay(for: date).timeIntervalSince1970)" }
 
     init(entry: Entry?, embedded: Bool = false) {
         self.entry = entry; self.embedded = embedded
@@ -70,31 +91,31 @@ struct EntryEditor: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     HStack { VStack(alignment: .leading, spacing: 4) { Text("记录每一笔").font(.title2.bold()); Text("让每一份收支都有迹可循").font(.subheadline).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "sparkles").foregroundStyle(Color.accentColor) }
-                    Picker("类型", selection: $income) { Text("支出").tag(false); Text("收入").tag(true) }.pickerStyle(.segmented)
+                    Picker("类型", selection: $income) { Text("支出").tag(false); Text("收入").tag(true) }.pickerStyle(.segmented).controlSize(.large).scaleEffect(x: 1, y: 1.25).padding(.vertical, 5)
                         .onChange(of: income) { _, _ in category = ""; detail = "" }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("金额").font(.subheadline).foregroundStyle(.secondary)
                         HStack(alignment: .firstTextBaseline) {
-                            Menu { ForEach(["CNY", "JPY", "USD"], id: \.self) { code in Button(code == "CNY" ? "人民币 CNY" : code == "JPY" ? "日元 JPY" : "美元 USD") { currency = code } } } label: { Text(currency == "USD" ? "$" : "¥").font(.title2.weight(.medium)).foregroundStyle(.secondary) }.accessibilityLabel("选择货币，当前\(currency)")
-                            TextField("0.00", text: $amount).keyboardType(.decimalPad).focused($amountFocused).font(.system(size: 38, weight: .bold, design: .rounded)).accessibilityLabel("金额")
+                            Menu { ForEach(["CNY", "JPY", "USD"], id: \.self) { code in Button(code == "CNY" ? "人民币 CNY" : code == "JPY" ? "日元 JPY" : "美元 USD") { withAnimation(.easeInOut(duration: 0.25)) { currency = code } } } } label: { Text(currency == "USD" ? "$" : currency == "JPY" ? "JPY" : "¥").font(.title2.weight(.medium)).foregroundStyle(.secondary) }.accessibilityLabel("选择货币，当前\(currency)")
+                            TextField("0.00", text: $amount).keyboardType(.decimalPad).focused($amountFocused).font(.system(size: 38, weight: .bold, design: .rounded)).accessibilityLabel("金额").frame(minWidth: 60)
+                            if currency != "CNY", previewKey == rateKey, let rate = previewRate, let value = Decimal(string: amount.replacingOccurrences(of: ",", with: ".")), value > 0 { Text("≈ ¥\(NSDecimalNumber(decimal: value * rate).doubleValue.formatted(.number.precision(.fractionLength(2))))").font(.caption).foregroundStyle(.secondary).fixedSize() }
                         }
-                        DatePicker("日期", selection: $date, displayedComponents: .date).font(.caption).padding(.top, 6)
-                        if currency != "CNY" { Text("保存时获取参考汇率，按人民币统计；与实际扣款可能不同。") .font(.caption).foregroundStyle(.secondary) }
+                        DatePicker("日期", selection: $date, displayedComponents: .date).font(.subheadline).padding(.top, 6)
+                        if currency != "CNY" { HStack { Text(rateLoading ? "正在获取参考汇率…" : rateFailed ? "汇率获取失败，请检查网络。" : "按参考汇率折算，实际扣款可能不同。") .font(.caption).foregroundStyle(.secondary); if rateFailed { Button("重试") { Task { await loadPreviewRate() } }.font(.caption) } }.transition(.opacity.combined(with: .move(edge: .top))) }
                     }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
-                    HStack { Text("分类").font(.headline); Spacer(); Button(showAllCategories ? "收起" : "更多") { withAnimation(.easeInOut) { showAllCategories.toggle() } } }
+                    HStack { Text("分类").font(.headline); Spacer(); Button("更多") { showAllCategories = true } }
                     categoryGrid
-                    if showAllCategories { Button { customName = ""; customEmoji = "✨"; showCustom = true } label: { Label("自定义", systemImage: "plus") } }
                     if !category.isEmpty && !categories.contains(where: { $0.name == category }) { Text("原有分类：\(category)").font(.subheadline).foregroundStyle(.secondary) }
                     if !category.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            HStack { Text("细分类").font(.headline); Text("可选").font(.caption).foregroundStyle(.secondary) }
+                            HStack { Text("细分").font(.headline); Text("可选").font(.caption).foregroundStyle(.secondary) }
                             if !detailOptions.isEmpty {
                                 ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack { ForEach(detailOptions, id: \.self) { item in Button(item) { detail = item } .buttonStyle(.bordered).tint(detail == item ? Color.accentColor : .secondary) } }
+                                    HStack { ForEach(detailOptions, id: \.self) { item in Button { detail = detail == item ? "" : item } label: { Text("\(detailEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(detail == item ? selectionColor : .secondary) } }
                                 }
                             }
-                            TextField("其他细分类（可自己填写）", text: $detail).textFieldStyle(.roundedBorder)
-                        }.padding(18).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                            TextField("其他细分（可填写）", text: $detail).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                        }
                     }
                     platformFields
                     if let error { Text(error).font(.footnote).foregroundStyle(.red) }
@@ -106,45 +127,91 @@ struct EntryEditor: View {
                 .sensoryFeedback(.selection, trigger: category)
                 .sensoryFeedback(.success, trigger: saved)
                 .safeAreaInset(edge: .bottom) {
-                    Button { Task { await save() } } label: { Text(saving ? "正在获取汇率…" : "保存").font(.headline).frame(maxWidth: .infinity).frame(height: 68).foregroundStyle(Color(uiColor: .systemBackground)).background(Color.primary, in: Capsule()) }.disabled(saving)
+                    Button { Task { await save() } } label: { Text(saving ? "正在获取汇率…" : "保存").font(.headline).frame(maxWidth: .infinity).frame(height: 68).foregroundStyle(Color(uiColor: .systemBackground)).background(Color(uiColor: .label), in: Capsule()) }.disabled(saving)
                         .buttonStyle(.plain).padding(.horizontal, 20).padding(.vertical, 8)
                         .background(.regularMaterial)
                 }
                 .navigationTitle(embedded ? "" : "编辑账目")
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
                 .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
+                .task(id: rateKey) { await loadPreviewRate() }
+                .sheet(isPresented: $showAllCategories) { categorySheet }
                 .sheet(isPresented: $showCustom) {
                     NavigationStack {
                         Form {
-                            Section("新分类") { TextField("名称，例如：猫粮", text: $customName); TextField("Emoji，例如 🐱", text: $customEmoji) }
+                            Section("新分类") { TextField("名称，例如：猫粮", text: $customName); Button("选择图标 \(customEmoji)") { showEmoji = true }; TextField("或输入其他 Emoji", text: $customEmoji) }
                             Text("仅影响未来的分类选择，已有账目不会删除。长按自定义分类可删除。 ").font(.footnote).foregroundStyle(.secondary)
                         }.navigationTitle("自定义分类").navigationBarTitleDisplayMode(.inline)
                             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { showCustom = false } }; ToolbarItem(placement: .confirmationAction) { Button("添加") { addCategory() }.disabled(customName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } }
-                    }.presentationDetents([.medium, .large])
+                    }.presentationDetents([.medium, .large]).sheet(isPresented: $showEmoji) { emojiSheet }
                 }
                 .alert("已记录", isPresented: $saved) { Button("好", role: .cancel) {} } message: { Text("账目已保存。") }
                 .alert("无法保存", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("好", role: .cancel) { error = nil } } message: { Text(error ?? "") }
         }
     }
     private var categoryGrid: some View {
-        LazyVGrid(columns: columns, spacing: 14) {
-            ForEach(visibleCategories) { item in
-                Button { if category != item.name { detail = "" }; category = item.name; amountFocused = false } label: {
-                    HStack(spacing: 4) { Text(item.emoji); Text(item.name).lineLimit(1).minimumScaleFactor(0.7) }.font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 12).background(category == item.name ? Color(uiColor: .tertiarySystemFill) : Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
-                }.buttonStyle(.plain).accessibilityLabel("\(item.name)\(category == item.name ? "，已选择" : "")")
-                    .contextMenu { if custom.contains(item) { Button("删除自定义分类", role: .destructive) { remove(item) } } }
-            }
+        ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 10) { ForEach(categories) { item in categoryButton(item) } } }
+    }
+    private func categoryButton(_ item: CategoryItem) -> some View {
+        Button {
+            let wasSelected = category == item.name
+            if category != item.name || wasSelected { detail = ""; merchant = "" }
+            category = wasSelected ? "" : item.name; amountFocused = false
+        } label: {
+            HStack(spacing: 6) { Text(item.emoji); Text(item.name) }.font(.subheadline.weight(.medium)).padding(.horizontal, 14).padding(.vertical, 12)
+                .foregroundStyle(category == item.name ? selectionColor : Color.primary)
+                .background(category == item.name ? selectionColor.opacity(0.16) : Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
+                .overlay(Capsule().stroke(category == item.name ? selectionColor : .clear, lineWidth: 1.5))
+        }.buttonStyle(.plain).accessibilityLabel("\(item.name)\(category == item.name ? "，已选择" : "")")
+    }
+    private var categorySheet: some View {
+        NavigationStack {
+            List {
+                Button { customName = ""; customEmoji = "✨"; showAllCategories = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showCustom = true } } label: { Label("自定义分类", systemImage: "plus.circle") }
+                Button { sortedItems = categories; showSort = true } label: { Label("调整分类顺序", systemImage: "line.3.horizontal") }
+                ForEach(categories) { item in
+                    Button { if category == item.name { category = "" } else { category = item.name }; detail = ""; merchant = ""; showAllCategories = false } label: { HStack { Text(item.emoji); Text(item.name); Spacer(); if category == item.name { Image(systemName: "checkmark").foregroundStyle(selectionColor) } } }
+                        .contextMenu { if custom.contains(item) { Button("删除自定义分类", role: .destructive) { remove(item) } } }
+                }
+            }.navigationTitle("全部分类").toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showAllCategories = false } } }
+            .sheet(isPresented: $showSort) { sortSheet }
+        }.presentationDetents([.medium, .large])
+    }
+    private var sortSheet: some View {
+        NavigationStack {
+            List { ForEach(sortedItems) { item in HStack { Text(item.emoji); Text(item.name) } }.onMove { sortedItems.move(fromOffsets: $0, toOffset: $1) } }
+                .environment(\.editMode, .constant(.active)).navigationTitle("调整顺序")
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { let ids = sortedItems.map(\.id); let old = (try? JSONDecoder().decode([String].self, from: Data(categoryOrder.utf8))) ?? []; let merged = ids + old.filter { !ids.contains($0) }; if let data = try? JSONEncoder().encode(merged), let string = String(data: data, encoding: .utf8) { categoryOrder = string }; showSort = false } } }
         }
+    }
+    private var emojiSheet: some View {
+        NavigationStack { ScrollView { LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 18) { ForEach(["😀","✨","🍜","🍔","🍱","☕️","🥬","🍪","🚇","🚕","🛍️","👕","🏠","💡","📱","🎮","🏃","✈️","💊","📚","💻","🔁","🧧","🐈","🧻","🧴","💼","💰","🎁","🧾"], id: \.self) { symbol in Button(symbol) { customEmoji = symbol; showEmoji = false }.font(.largeTitle) } }.padding() }.navigationTitle("选择 Emoji").toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showEmoji = false } } } }.presentationDetents([.medium, .large])
     }
     private var platformFields: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("消费平台（选填）").font(.headline)
-            ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(category == "餐饮" ? ["美团", "饿了么", "线下"] : category == "购物" ? ["淘宝", "京东", "拼多多", "线下"] : ["线下", "线上"], id: \.self) { item in Button(item) { merchant = item }.buttonStyle(.bordered).tint(merchant == item ? .primary : .secondary) } } }
-            TextField("其他消费平台", text: $merchant).textFieldStyle(.roundedBorder)
-            TextField("备注（选填）", text: $note).textFieldStyle(.roundedBorder)
-            if !platform.isEmpty { TextField("旧版平台", text: $platform).textFieldStyle(.roundedBorder) }
+            Text("平台").font(.headline)
+            if !category.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(platformOptions + savedOptions("platform").filter { !platformOptions.contains($0) }, id: \.self) { item in Button { merchant = merchant == item ? "" : item } label: { Text("\(platformEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(merchant == item ? selectionColor : .secondary) } } }
+                TextField("其他平台（选填）", text: $merchant).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+            }
+            Text("备注").font(.headline)
+            TextField("写点什么（选填）", text: $note).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+            if !platform.isEmpty { TextField("旧版平台", text: $platform).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14)) }
         }
     }
+    private var platformOptions: [String] { category == "餐饮" ? ["美团", "饿了么", "大众点评"] : category == "购物" ? ["淘宝", "京东", "拼多多"] : category == "交通" || category == "打车" ? ["滴滴", "高德", "12306"] : [] }
+    private func optionsKey(_ kind: String) -> String { "\(income)-\(category)-\(kind)" }
+    private func savedOptions(_ kind: String) -> [String] { ((try? JSONDecoder().decode([String: [String]].self, from: Data(customOptionsJSON.utf8))) ?? [:])[optionsKey(kind)] ?? [] }
+    private func rememberOptions() {
+        var options = (try? JSONDecoder().decode([String: [String]].self, from: Data(customOptionsJSON.utf8))) ?? [:]
+        for (kind, value) in [("detail", detail), ("platform", merchant)] {
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !clean.isEmpty { let key = optionsKey(kind); var values = options[key] ?? []; if !values.contains(clean) { values.append(clean) }; options[key] = values }
+        }
+        if let data = try? JSONEncoder().encode(options), let text = String(data: data, encoding: .utf8) { customOptionsJSON = text }
+    }
+    private func platformEmoji(_ name: String) -> String { ["美团":"🍱", "饿了么":"🥡", "大众点评":"⭐️", "淘宝":"🛍️", "京东":"📦", "拼多多":"🛒", "滴滴":"🚕", "高德":"🗺️", "12306":"🚄"][name] ?? "📍" }
+    private func detailEmoji(_ name: String) -> String { ["早餐":"🌅", "午餐":"🍱", "晚餐":"🌙", "外卖":"🥡", "夜宵":"🌃", "蔬菜":"🥬", "水果":"🍎", "咖啡":"☕️", "奶茶":"🧋", "地铁":"🚇", "公交":"🚌", "火车":"🚄", "日用品":"🧻", "服饰":"👕", "房租":"🏠", "工资":"💼"][name] ?? "✨" }
     private var moreFields: some View {
         DisclosureGroup("更多信息（选填）") {
             VStack(spacing: 0) {
@@ -174,6 +241,24 @@ struct EntryEditor: View {
         if let data = try? JSONEncoder().encode(all), let text = String(data: data, encoding: .utf8) { customJSON = text; if category == item.name { category = "" } }
     }
     private struct RateReply: Decodable { let date: String; let rates: [String: Decimal] }
+    @MainActor private func loadPreviewRate() async {
+        let key = rateKey, selectedCurrency = currency, selectedDate = date
+        previewRate = nil; previewDate = nil; previewKey = ""; rateFailed = false
+        guard selectedCurrency != "CNY" else { rateLoading = false; return }
+        if let old = entry, old.currency == selectedCurrency, Calendar.current.isDate(old.date, inSameDayAs: selectedDate), let rate = old.cnyRate { previewRate = rate; previewDate = old.rateDate; previewKey = key; rateLoading = false; return }
+        rateLoading = true
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = Calendar.current.timeZone; formatter.dateFormat = "yyyy-MM-dd"
+        let day = formatter.string(from: selectedDate)
+        guard let url = URL(string: "https://api.frankfurter.dev/v1/\(day)?base=\(selectedCurrency)&symbols=CNY") else { rateLoading = false; rateFailed = true; return }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw URLError(.badServerResponse) }
+            let result = try JSONDecoder().decode(RateReply.self, from: data)
+            guard let rate = result.rates["CNY"], rate > 0 else { throw URLError(.cannotParseResponse) }
+            guard !Task.isCancelled, key == rateKey else { return }
+            previewRate = rate; previewDate = result.date; previewKey = key; rateLoading = false
+        } catch { if !Task.isCancelled && key == rateKey { rateLoading = false; rateFailed = true } }
+    }
     @MainActor private func save() async {
         let clean = amount.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
         let parts = clean.split(separator: ".", omittingEmptySubsequences: false)
@@ -184,25 +269,13 @@ struct EntryEditor: View {
         var rate: Decimal? = nil
         var usedDate: String? = nil
         if currency != "CNY" {
-            if let old = entry, old.currency == currency, Calendar.current.isDate(old.date, inSameDayAs: date), let oldRate = old.cnyRate {
-                rate = oldRate; usedDate = old.rateDate
-            } else {
-                let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = Calendar.current.timeZone; formatter.dateFormat = "yyyy-MM-dd"
-                let day = formatter.string(from: date)
-                guard let url = URL(string: "https://api.frankfurter.dev/v1/\(day)?base=\(currency)&symbols=CNY") else { error = "汇率地址无效。"; return }
-                do {
-                    let (data, response) = try await URLSession.shared.data(from: url)
-                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw URLError(.badServerResponse) }
-                    let result = try JSONDecoder().decode(RateReply.self, from: data)
-                    guard let fetched = result.rates["CNY"], fetched > 0 else { throw URLError(.cannotParseResponse) }
-                    rate = fetched; usedDate = result.date
-                } catch { self.error = "无法获取该日期的汇率，请检查网络后重试。账目尚未保存。"; return }
-            }
+            guard previewKey == rateKey, let currentRate = previewRate else { error = "汇率尚未获取，请检查网络并重试。账目尚未保存。"; return }
+            rate = currentRate; usedDate = previewDate
         }
         let updated = Entry(id: entry?.id ?? UUID(), amount: value, category: category, note: note.trimmingCharacters(in: .whitespacesAndNewlines), date: date, income: income, detail: detail.trimmingCharacters(in: .whitespacesAndNewlines), platform: platform.trimmingCharacters(in: .whitespacesAndNewlines), merchant: merchant.trimmingCharacters(in: .whitespacesAndNewlines), payment: payment.trimmingCharacters(in: .whitespacesAndNewlines), currency: currency, cnyRate: rate, rateDate: usedDate)
         var all = ledger.entries
         if let index = all.firstIndex(where: { $0.id == updated.id }) { all[index] = updated } else { all.append(updated) }
-        if ledger.save(all) { if embedded { amount = ""; note = ""; category = ""; detail = ""; platform = ""; merchant = ""; payment = ""; date = Date(); error = nil; amountFocused = false; saved = true } else { dismiss() } }
+        if ledger.save(all) { rememberOptions(); if embedded { amount = ""; note = ""; category = ""; detail = ""; platform = ""; merchant = ""; payment = ""; date = Date(); error = nil; amountFocused = false; saved = true } else { dismiss() } }
         else { error = "保存失败，请重试。" }
     }
     private var detailOptions: [String] {
@@ -215,7 +288,8 @@ struct EntryEditor: View {
             "旅行": ["机票", "住宿", "门票"], "订阅": ["软件", "影音", "云服务"],
             "工资": ["基本工资", "绩效", "补贴"], "兼职": ["项目", "劳务"], "退款": ["购物退款", "其他退款"]
         ]
-        return options[category] ?? []
+        let defaults = options[category] ?? []
+        return defaults + savedOptions("detail").filter { !defaults.contains($0) }
     }
 }
 
