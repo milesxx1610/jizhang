@@ -33,6 +33,7 @@ struct EntryEditor: View {
     @State private var platform: String
     @State private var merchant: String
     @State private var payment: String
+    @State private var currency: String
     @State private var showAllCategories = false
     @State private var error: String?
     @State private var showCustom = false
@@ -60,6 +61,7 @@ struct EntryEditor: View {
         _platform = State(initialValue: entry?.platform ?? "")
         _merchant = State(initialValue: entry?.merchant ?? "")
         _payment = State(initialValue: entry?.payment ?? "")
+        _currency = State(initialValue: entry?.currency ?? "CNY")
         _showAllCategories = State(initialValue: entry != nil)
     }
     var body: some View {
@@ -72,15 +74,14 @@ struct EntryEditor: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("金额").font(.subheadline).foregroundStyle(.secondary)
                         HStack(alignment: .firstTextBaseline) {
-                            Text("¥").font(.title2.weight(.medium)).foregroundStyle(.secondary)
+                            Menu { ForEach(["CNY", "JPY", "USD"], id: \.self) { code in Button(code == "CNY" ? "人民币 CNY" : code == "JPY" ? "日元 JPY" : "美元 USD") { currency = code } } } label: { Text(currency == "USD" ? "$" : "¥").font(.title2.weight(.medium)).foregroundStyle(.secondary) }.accessibilityLabel("选择货币，当前\(currency)")
                             TextField("0.00", text: $amount).keyboardType(.decimalPad).focused($amountFocused).font(.system(size: 38, weight: .bold, design: .rounded)).accessibilityLabel("金额")
                         }
-                        HStack { Image(systemName: "calendar"); Text(date, format: .dateTime.year().month().day()); Spacer(); Text(income ? "收入" : "支出") }.font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+                        DatePicker("日期", selection: $date, displayedComponents: .date).font(.caption).padding(.top, 6)
                     }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
-                    HStack { Text("分类").font(.headline); Spacer(); Button { customName = ""; customEmoji = "✨"; showCustom = true } label: { Label("自定义", systemImage: "plus") }.font(.subheadline) }
+                    HStack { Text("分类").font(.headline); Spacer(); Button(showAllCategories ? "收起" : "更多") { withAnimation(.easeInOut) { showAllCategories.toggle() } } }
                     categoryGrid
-                    Button(showAllCategories ? "收起分类" : "查看全部分类（\(categories.count)）") { withAnimation { showAllCategories.toggle() } }
-                        .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).padding(.vertical, 8)
+                    if showAllCategories { Button { customName = ""; customEmoji = "✨"; showCustom = true } label: { Label("自定义", systemImage: "plus") } }
                     if !category.isEmpty && !categories.contains(where: { $0.name == category }) { Text("原有分类：\(category)").font(.subheadline).foregroundStyle(.secondary) }
                     if !category.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
@@ -93,19 +94,21 @@ struct EntryEditor: View {
                             TextField("其他细分类（可自己填写）", text: $detail).textFieldStyle(.roundedBorder)
                         }.padding(18).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
                     }
-                    moreFields
+                    platformFields
                     if let error { Text(error).font(.footnote).foregroundStyle(.red) }
                 }.padding(20).padding(.bottom, 24)
             }.background(Color(uiColor: .systemGroupedBackground))
+                .scrollDismissesKeyboard(.interactively)
+                .onTapGesture { amountFocused = false }
                 .sensoryFeedback(.selection, trigger: amount)
                 .sensoryFeedback(.selection, trigger: category)
                 .sensoryFeedback(.success, trigger: saved)
                 .safeAreaInset(edge: .bottom) {
-                    Button(action: save) { Text(entry == nil ? "保存账目" : "保存修改").fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 8) }
-                        .buttonStyle(.borderedProminent).controlSize(.large).padding(.horizontal, 20).padding(.vertical, 8)
+                    Button(action: save) { Text("保存").font(.headline).frame(maxWidth: .infinity).frame(height: 68).foregroundStyle(Color(uiColor: .systemBackground)).background(Color.primary, in: Capsule()) }
+                        .buttonStyle(.plain).padding(.horizontal, 20).padding(.vertical, 8)
                         .background(.regularMaterial)
                 }
-                .navigationTitle(entry == nil ? "记一笔" : "编辑账目")
+                .navigationTitle(embedded ? "" : "编辑账目")
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
                 .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
                 .sheet(isPresented: $showCustom) {
@@ -125,15 +128,19 @@ struct EntryEditor: View {
         LazyVGrid(columns: columns, spacing: 14) {
             ForEach(visibleCategories) { item in
                 Button { if category != item.name { detail = "" }; category = item.name; amountFocused = false } label: {
-                    VStack(spacing: 6) {
-                        Text(item.emoji).font(.title2).frame(width: 52, height: 52)
-                            .background(category == item.name ? Color.accentColor.opacity(0.2) : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 17))
-                            .overlay(RoundedRectangle(cornerRadius: 17).stroke(category == item.name ? Color.accentColor : .clear, lineWidth: 2))
-                        Text(item.name).font(.caption).foregroundStyle(.primary).lineLimit(1)
-                    }.frame(maxWidth: .infinity)
+                    HStack(spacing: 4) { Text(item.emoji); Text(item.name).lineLimit(1).minimumScaleFactor(0.7) }.font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 12).background(category == item.name ? Color(uiColor: .tertiarySystemFill) : Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
                 }.buttonStyle(.plain).accessibilityLabel("\(item.name)\(category == item.name ? "，已选择" : "")")
                     .contextMenu { if custom.contains(item) { Button("删除自定义分类", role: .destructive) { remove(item) } } }
             }
+        }
+    }
+    private var platformFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("消费平台（选填）").font(.headline)
+            ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(category == "餐饮" ? ["美团", "饿了么", "线下"] : category == "购物" ? ["淘宝", "京东", "拼多多", "线下"] : ["线下", "线上"], id: \.self) { item in Button(item) { merchant = item }.buttonStyle(.bordered).tint(merchant == item ? .primary : .secondary) } } }
+            TextField("其他消费平台", text: $merchant).textFieldStyle(.roundedBorder)
+            TextField("备注（选填）", text: $note).textFieldStyle(.roundedBorder)
+            if !platform.isEmpty { TextField("旧版平台", text: $platform).textFieldStyle(.roundedBorder) }
         }
     }
     private var moreFields: some View {
@@ -169,7 +176,7 @@ struct EntryEditor: View {
         let parts = clean.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count <= 2, !clean.isEmpty, clean.allSatisfy({ $0.isNumber || $0 == "." }), parts.count == 1 || parts[1].count <= 2, let value = Decimal(string: clean, locale: Locale(identifier: "en_US_POSIX")), value > 0, value <= 999999999 else { error = "请输入大于零的金额，最多两位小数。"; return }
         guard !category.isEmpty else { error = "请选择分类。"; return }
-        let updated = Entry(id: entry?.id ?? UUID(), amount: value, category: category, note: note.trimmingCharacters(in: .whitespacesAndNewlines), date: date, income: income, detail: detail.trimmingCharacters(in: .whitespacesAndNewlines), platform: platform.trimmingCharacters(in: .whitespacesAndNewlines), merchant: merchant.trimmingCharacters(in: .whitespacesAndNewlines), payment: payment.trimmingCharacters(in: .whitespacesAndNewlines))
+        let updated = Entry(id: entry?.id ?? UUID(), amount: value, category: category, note: note.trimmingCharacters(in: .whitespacesAndNewlines), date: date, income: income, detail: detail.trimmingCharacters(in: .whitespacesAndNewlines), platform: platform.trimmingCharacters(in: .whitespacesAndNewlines), merchant: merchant.trimmingCharacters(in: .whitespacesAndNewlines), payment: payment.trimmingCharacters(in: .whitespacesAndNewlines), currency: currency)
         var all = ledger.entries
         if let index = all.firstIndex(where: { $0.id == updated.id }) { all[index] = updated } else { all.append(updated) }
         if ledger.save(all) { if embedded { amount = ""; note = ""; category = ""; detail = ""; platform = ""; merchant = ""; payment = ""; date = Date(); error = nil; amountFocused = false; saved = true } else { dismiss() } }
