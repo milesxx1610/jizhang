@@ -45,6 +45,11 @@ struct TabArrival: ViewModifier {
     }
 }
 
+private struct SearchPullOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 private struct Dashboard: View {
     @EnvironmentObject private var ledger: Ledger
     @Binding var target: EditorTarget?
@@ -52,6 +57,8 @@ private struct Dashboard: View {
     @State private var month = Date()
     @State private var deleting: Entry?
     @State private var search = ""
+    @State private var showSearch = false
+    @FocusState private var searchFocused: Bool
     @AppStorage("monthlyBudget") private var budget = 0.0
     private var items: [Entry] { monthItems(ledger.entries, month) }
     private var visible: [Entry] { search.isEmpty ? items : items.filter { [$0.category, $0.note, $0.detail ?? "", $0.platform ?? "", $0.merchant ?? "", $0.payment ?? ""].contains { $0.localizedCaseInsensitiveContains(search) } } }
@@ -60,6 +67,14 @@ private struct Dashboard: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
+                    Text("明细").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
+                    if showSearch {
+                        HStack {
+                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                            TextField("搜索分类或备注", text: $search).focused($searchFocused)
+                            Button { search = ""; searchFocused = false; withAnimation(.easeInOut(duration: 0.2)) { showSearch = false } } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.accessibilityLabel("关闭搜索")
+                        }.padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                    }
                     header
                     if items.contains(where: { $0.cnyAmount == nil }) { Text("部分外币账目缺少汇率，未计入人民币汇总。请编辑并重新保存。") .font(.footnote).foregroundStyle(.orange) }
                     summary
@@ -84,11 +99,22 @@ private struct Dashboard: View {
                         }
                     }
                 }.padding(.horizontal, 20).padding(.bottom, 40)
+                    .background(GeometryReader { geometry in
+                        Color.clear.preference(key: SearchPullOffsetKey.self, value: geometry.frame(in: .named("detail-scroll")).minY)
+                    })
             }
+            .scrollBounceBehavior(.always, axes: .vertical)
+            .coordinateSpace(name: "detail-scroll")
+            .onPreferenceChange(SearchPullOffsetKey.self) { offset in
+                if offset > 60 && !showSearch { withAnimation(.easeInOut(duration: 0.2)) { showSearch = true } }
+            }
+            .onChange(of: selected) { _, newValue in
+                if newValue != 0 && search.isEmpty { showSearch = false; searchFocused = false }
+            }
+            .accessibilityAction(named: "显示搜索") { showSearch = true; searchFocused = true }
             .background(Color(uiColor: .systemGroupedBackground))
             .modifier(TabArrival(selected: selected, tab: 0))
-            .navigationTitle("明细").navigationBarTitleDisplayMode(.large)
-            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜索分类或备注")
+            .navigationTitle("").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { target = EditorTarget(entry: nil) } label: { Image(systemName: "plus") }.accessibilityLabel("记一笔") } }
             .alert("删除这笔账目？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
                 Button("删除", role: .destructive) { if let item = deleting { _ = ledger.save(ledger.entries.filter { $0.id != item.id }) }; deleting = nil }
@@ -165,6 +191,7 @@ private struct Insights: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    Text("统计").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
                     HStack { Button { shift(-1) } label: { Image(systemName: "chevron.left") }; Spacer(); Text(month, format: .dateTime.year().month()).font(.headline); Spacer(); Button { shift(1) } label: { Image(systemName: "chevron.right") } }.padding(.vertical, 10)
                     if items.contains(where: { $0.cnyAmount == nil }) { Text("部分外币账目缺少汇率，未计入统计。") .font(.footnote).foregroundStyle(.orange) }
                     VStack(alignment: .leading, spacing: 14) {
@@ -180,7 +207,7 @@ private struct Insights: View {
                 }.padding(20)
             }.background(Color(uiColor: .systemGroupedBackground))
                 .modifier(TabArrival(selected: selected, tab: 2))
-                .navigationTitle("统计")
+                .navigationTitle("").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showingSettings = true } label: { Image(systemName: "gearshape") }.accessibilityLabel("设置") } }
                 .sheet(isPresented: $showingSettings) { Preferences() }
         }.tint(accent)
