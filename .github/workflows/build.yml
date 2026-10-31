@@ -1,10 +1,16 @@
 name: Build unsigned IPA
 on:
-  push:
-    branches: [main, personal-ledger-design]
   workflow_dispatch:
+    inputs:
+      preview:
+        description: '生成模拟器截图'
+        type: boolean
+        default: false
 permissions:
   contents: read
+concurrency:
+  group: ledger-build-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: macos-15
@@ -40,6 +46,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Preview on simulator
+        if: ${{ inputs.preview }}
+        timeout-minutes: 5
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -57,9 +65,10 @@ jobs:
           sleep 3
           xcrun simctl io "$DEVICE" screenshot "$RUNNER_TEMP/dark.png"
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() && inputs.preview }}
         with:
           name: Simulator-previews
+          retention-days: 7
           path: |
             ${{ runner.temp }}/light.png
             ${{ runner.temp }}/dark.png
