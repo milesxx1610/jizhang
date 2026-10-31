@@ -1,10 +1,16 @@
 name: Build unsigned IPA
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      preview:
+        description: '生成模拟器截图（仅已配置的分支有效）'
+        type: boolean
+        default: false
 permissions:
   contents: read
+concurrency:
+  group: ledger-build-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: macos-15
