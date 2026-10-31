@@ -56,7 +56,6 @@ struct EntryEditor: View {
     @State private var error: String?
     @State private var showCustom = false
     @State private var showSort = false
-    @State private var showEmoji = false
     @State private var showCurrency = false
     @State private var viewportBottom: CGFloat = 0
     @State private var optionsBottom: CGFloat = 0
@@ -75,7 +74,7 @@ struct EntryEditor: View {
     @State private var rateLoading = false
     @State private var rateFailed = false
     @State private var customName = ""
-    @State private var customEmoji = "✨"
+    @State private var customEmoji = ""
     @State private var saved = false
     @State private var saving = false
     @FocusState private var amountFocused: Bool
@@ -160,9 +159,9 @@ struct EntryEditor: View {
                             }
                             if !detailOptions.contains(detail) {
                                 TextField("其他细分", text: $detail).focused($detailFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
-                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                                    .transition(revealTransition)
                             }
-                        }.transition(reduceMotion ? .opacity : .opacity.combined(with: .modifier(active: RevealBlur(radius: 5, scale: 0.97), identity: RevealBlur(radius: 0, scale: 1))))
+                        }.transition(revealTransition)
                     }
                     platformFields
                 }.padding(20).padding(.bottom, 24)
@@ -181,7 +180,7 @@ struct EntryEditor: View {
                     Task { @MainActor in
                         // Wait for the inserted content to acquire its final layout.
                         try? await Task.sleep(for: .milliseconds(250))
-                        guard category == newValue else { return }
+                        guard category == newValue, optionsBottom > viewportBottom else { return }
                         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
                             proxy.scrollTo("platform-end", anchor: .bottom)
                         }
@@ -216,12 +215,12 @@ struct EntryEditor: View {
                 .sheet(isPresented: $showCustom) {
                     NavigationStack {
                         Form {
-                            Section("新分类") { TextField("名称，例如：猫粮", text: $customName); Button("选择图标 \(customEmoji)") { showEmoji = true }; TextField("或输入其他 Emoji", text: $customEmoji) }
+                            Section("新分类") { TextField("名称，例如：猫粮", text: $customName); iconInput }
                             Text("仅影响未来的分类选择，已有账目不会删除。长按自定义分类可删除。 ").font(.footnote).foregroundStyle(.secondary)
                         }.scrollDismissesKeyboard(.interactively).onTapGesture { dismissKeyboard() }
                             .navigationTitle("自定义分类").navigationBarTitleDisplayMode(.inline)
                             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { showCustom = false } }; ToolbarItem(placement: .confirmationAction) { Button("添加") { addCategory() }.disabled(customName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } }
-                    }.presentationDetents([.medium, .large]).sheet(isPresented: $showEmoji) { emojiSheet }
+                    }.presentationDetents([.medium, .large])
                 }
                 .alert("已记录", isPresented: $saved) { Button("好", role: .cancel) {} } message: { Text("账目已保存。") }
                 .alert("无法保存", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("好", role: .cancel) { error = nil } } message: { Text(error ?? "") }
@@ -275,7 +274,7 @@ struct EntryEditor: View {
     }
     private var categoryMenu: some View {
         Menu {
-            Button { customName = ""; customEmoji = "✨"; showCustom = true } label: { Label("自定义分类", systemImage: "plus.circle") }
+            Button { customName = ""; customEmoji = ""; showCustom = true } label: { Label("自定义分类", systemImage: "plus.circle") }
             Button { sortedItems = categories; showSort = true } label: { Label("调整分类顺序", systemImage: "line.3.horizontal") }
             Divider()
             ForEach(categories) { item in
@@ -298,7 +297,7 @@ struct EntryEditor: View {
     private var categorySheet: some View {
         NavigationStack {
             List {
-                Button { customName = ""; customEmoji = "✨"; showAllCategories = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showCustom = true } } label: { Label("自定义分类", systemImage: "plus.circle") }
+                Button { customName = ""; customEmoji = ""; showAllCategories = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showCustom = true } } label: { Label("自定义分类", systemImage: "plus.circle") }
                 Button { sortedItems = categories; showSort = true } label: { Label("调整分类顺序", systemImage: "line.3.horizontal") }
                 ForEach(categories) { item in
                     Button { if category == item.name { category = "" } else { category = item.name }; detail = ""; merchant = ""; showAllCategories = false } label: { HStack { Text(item.emoji); Text(item.name); Spacer(); if category == item.name { Image(systemName: "checkmark").foregroundStyle(selectionColor) } } }
@@ -315,8 +314,20 @@ struct EntryEditor: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { let ids = sortedItems.map(\.id); let old = (try? JSONDecoder().decode([String].self, from: Data(categoryOrder.utf8))) ?? []; let merged = ids + old.filter { !ids.contains($0) }; if let data = try? JSONEncoder().encode(merged), let string = String(data: data, encoding: .utf8) { categoryOrder = string }; showSort = false } } }
         }
     }
-    private var emojiSheet: some View {
-        NavigationStack { ScrollView { LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 18) { ForEach(["😀","✨","🍜","🍔","🍱","☕️","🥬","🍪","🚇","🚕","🛍️","👕","🏠","💡","📱","🎮","🏃","✈️","💊","📚","💻","🔁","🧧","🐈","🧻","🧴","💼","💰","🎁","🧾"], id: \.self) { symbol in Button(symbol) { customEmoji = symbol; showEmoji = false }.font(.largeTitle) } }.padding() }.navigationTitle("选择 Emoji").toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showEmoji = false } } } }.presentationDetents([.medium, .large])
+    private var iconInput: some View {
+        HStack {
+            Text("图标")
+            TextField("✨ 输入图标", text: $customEmoji)
+                .keyboardType(.default)
+                .multilineTextAlignment(.trailing)
+                .accessibilityLabel("输入图标")
+        }
+    }
+    private var revealTransition: AnyTransition {
+        reduceMotion ? .opacity : .asymmetric(
+            insertion: .opacity.combined(with: .modifier(active: RevealBlur(radius: 3, scale: 0.985), identity: RevealBlur(radius: 0, scale: 1))),
+            removal: .opacity
+        )
     }
     private var platformFields: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -326,14 +337,14 @@ struct EntryEditor: View {
                 ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(allPlatforms, id: \.self) { item in Button { merchant = merchant == item ? "" : item; selectionFeedback() } label: { Text("\(platformEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(merchant == item ? selectionColor : .secondary).contextMenu { if customOptionEmoji(item, kind: "platform") != nil { Button("删除自定义平台", role: .destructive) { removeCustomOption(item, kind: "platform") } } } } } }
                 if !allPlatforms.contains(merchant) {
                     TextField("其他平台", text: $merchant).focused($platformFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        .transition(revealTransition)
                 }
                 }
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: OptionsBottomKey.self, value: geometry.frame(in: .global).maxY)
                 })
                 .id("platform-end")
-                .transition(reduceMotion ? .opacity : .opacity.combined(with: .modifier(active: RevealBlur(radius: 5, scale: 0.97), identity: RevealBlur(radius: 0, scale: 1))))
+                .transition(revealTransition)
             }
             Text("备注").font(.headline)
             TextField("写点什么", text: $note).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
@@ -343,7 +354,7 @@ struct EntryEditor: View {
     private func optionMenu(kind: String) -> some View {
         let options = kind == "detail" ? detailOptions : allPlatforms
         return Menu {
-            Button { customOptionKind = kind; customName = ""; customEmoji = "✨"; showCustomOption = true } label: { Label("自定义", systemImage: "plus.circle") }
+            Button { customOptionKind = kind; customName = ""; customEmoji = ""; showCustomOption = true } label: { Label("自定义", systemImage: "plus.circle") }
             Button { optionSortKind = kind; optionSortItems = options; showOptionSort = true } label: { Label("调整顺序", systemImage: "line.3.horizontal") }
             Divider()
             ForEach(options, id: \.self) { item in
@@ -356,8 +367,7 @@ struct EntryEditor: View {
             Form {
                 Section(customOptionKind == "detail" ? "新细分" : "新平台") {
                     TextField("名称", text: $customName)
-                    Button("选择图标 \(customEmoji)") { showEmoji = true }
-                    TextField("或输入其他 Emoji", text: $customEmoji)
+                    iconInput
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -370,7 +380,6 @@ struct EntryEditor: View {
                         .disabled(customName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            .sheet(isPresented: $showEmoji) { emojiSheet }
         }.presentationDetents([.medium, .large])
     }
     private func addCustomOption() {
