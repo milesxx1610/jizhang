@@ -13,35 +13,13 @@ struct LedgerTabs: View {
     @State private var selected = 1
     var body: some View {
         TabView(selection: $selected) {
-            TabEntrance(selected: selected, tab: 0) { Dashboard(target: $target) }.tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
-            TabEntrance(selected: selected, tab: 1) { EntryEditor(entry: nil, embedded: true) }.tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
-            TabEntrance(selected: selected, tab: 2) { Insights() }.tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
+            Dashboard(target: $target).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
+            EntryEditor(entry: nil, embedded: true).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
+            Insights().tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
         }
         .tint(accent)
         .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger) }
         .alert("提示", isPresented: Binding(get: { ledger.error != nil }, set: { if !$0 { ledger.error = nil } })) { Button("知道了") { ledger.error = nil } } message: { Text(ledger.error ?? "") }
-    }
-}
-
-private struct TabEntrance<Content: View>: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let selected: Int
-    let tab: Int
-    @ViewBuilder let content: Content
-    @State private var appeared = true
-
-    var body: some View {
-        content
-            .opacity(appeared || reduceMotion ? 1 : 0.92)
-            .onChange(of: selected) { _, current in
-                if current == tab {
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.34)) { appeared = true }
-                } else {
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) { appeared = false }
-                }
-            }
     }
 }
 
