@@ -11,14 +11,12 @@ func draw(name: String, dark: Bool) throws {
     NSBezierPath(rect: NSRect(x: 0, y: 0, width: 1024, height: 1024)).fill()
     let ink = dark ? color(0.91, 0.95, 0.93) : color(0.12, 0.20, 0.19)
     NSGraphicsContext.saveGraphicsState()
-    if !dark {
-        // Enlarge the light wallet around its center; the dark icon stays unchanged.
-        let transform = NSAffineTransform()
-        transform.translateX(by: 512, yBy: 545)
-        transform.scale(by: 1.08)
-        transform.translateX(by: -512, yBy: -545)
-        transform.concat()
-    }
+    // Use the same larger wallet size in light and dark appearances.
+    let transform = NSAffineTransform()
+    transform.translateX(by: 512, yBy: 545)
+    transform.scale(by: 1.18)
+    transform.translateX(by: -512, yBy: -545)
+    transform.concat()
     ink.setStroke()
     // The upper edge suggests a folded wallet behind the main body.
     let upper = NSBezierPath()
