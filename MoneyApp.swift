@@ -24,6 +24,7 @@ struct LedgerBackup: Codable {
     var monthlyBudget: Double
     var categoryOrder: String? = nil
     var customEntryOptions: String? = nil
+    var customOptionEmoji: String? = nil
 }
 
 @MainActor final class Ledger: ObservableObject {
@@ -35,7 +36,7 @@ struct LedgerBackup: Codable {
         guard !loadFailed else { throw CocoaError(.fileReadCorruptFile) }
         let json = UserDefaults.standard.string(forKey: "customCategories") ?? "[]"
         let categories = try JSONDecoder().decode([CategoryItem].self, from: Data(json.utf8))
-        return try JSONEncoder().encode(LedgerBackup(formatVersion: 1, entries: entries, customCategories: categories, monthlyBudget: UserDefaults.standard.double(forKey: "monthlyBudget"), categoryOrder: UserDefaults.standard.string(forKey: "categoryOrder"), customEntryOptions: UserDefaults.standard.string(forKey: "customEntryOptions")))
+        return try JSONEncoder().encode(LedgerBackup(formatVersion: 1, entries: entries, customCategories: categories, monthlyBudget: UserDefaults.standard.double(forKey: "monthlyBudget"), categoryOrder: UserDefaults.standard.string(forKey: "categoryOrder") ?? "[]", customEntryOptions: UserDefaults.standard.string(forKey: "customEntryOptions") ?? "{}", customOptionEmoji: UserDefaults.standard.string(forKey: "customOptionEmoji") ?? "{}"))
     }
     func decodeBackup(_ data: Data) throws -> LedgerBackup {
         let decoder = JSONDecoder()
@@ -53,6 +54,7 @@ struct LedgerBackup: Codable {
               Set(backup.customCategories.map(\.id)).count == backup.customCategories.count else { throw CocoaError(.fileReadCorruptFile) }
         if let order = backup.categoryOrder { _ = try decoder.decode([String].self, from: Data(order.utf8)) }
         if let options = backup.customEntryOptions { _ = try decoder.decode([String: [String]].self, from: Data(options.utf8)) }
+        if let icons = backup.customOptionEmoji { _ = try decoder.decode([String: String].self, from: Data(icons.utf8)) }
         return backup
     }
     func restore(_ backup: LedgerBackup) throws {
@@ -68,6 +70,7 @@ struct LedgerBackup: Codable {
         UserDefaults.standard.set(backup.monthlyBudget, forKey: "monthlyBudget")
         if let order = backup.categoryOrder { UserDefaults.standard.set(order, forKey: "categoryOrder") }
         if let options = backup.customEntryOptions { UserDefaults.standard.set(options, forKey: "customEntryOptions") }
+        if let icons = backup.customOptionEmoji { UserDefaults.standard.set(icons, forKey: "customOptionEmoji") }
     }
     init() {
         guard FileManager.default.fileExists(atPath: file.path) else { return }

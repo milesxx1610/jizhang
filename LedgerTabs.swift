@@ -13,13 +13,36 @@ struct LedgerTabs: View {
     @State private var selected = 1
     var body: some View {
         TabView(selection: $selected) {
-            Dashboard(target: $target).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
-            EntryEditor(entry: nil, embedded: true).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
-            Insights().tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
+            TabEntrance(selected: selected, tab: 0) { Dashboard(target: $target) }.tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
+            TabEntrance(selected: selected, tab: 1) { EntryEditor(entry: nil, embedded: true) }.tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
+            TabEntrance(selected: selected, tab: 2) { Insights() }.tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
         }
         .tint(accent)
         .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger) }
         .alert("提示", isPresented: Binding(get: { ledger.error != nil }, set: { if !$0 { ledger.error = nil } })) { Button("知道了") { ledger.error = nil } } message: { Text(ledger.error ?? "") }
+    }
+}
+
+private struct TabEntrance<Content: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let selected: Int
+    let tab: Int
+    @ViewBuilder let content: Content
+    @State private var appeared = true
+
+    var body: some View {
+        content
+            .scaleEffect(appeared || reduceMotion ? 1 : 0.99)
+            .opacity(appeared || reduceMotion ? 1 : 0.94)
+            .task(id: selected) {
+                guard selected == tab, !reduceMotion else { appeared = true; return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { appeared = false }
+                try? await Task.sleep(for: .milliseconds(15))
+                guard !Task.isCancelled else { return }
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.84)) { appeared = true }
+            }
     }
 }
 
@@ -184,7 +207,7 @@ private struct Preferences: View {
                     Label("数据保存在本机", systemImage: "iphone")
                     Button("导出账目备份") { do { document = LedgerDocument(data: try ledger.exportData()); exporting = true } catch { ledger.error = "读取账目失败，无法导出。" } }
                     Button("导入备份") { importing = true }
-                    Text("备份包含账目、自定义分类和预算；导入会替换当前数据。旧版仅账目备份也可导入，但不会更改当前分类和预算。请妥善保管备份；删除 App 可能导致本地数据丢失。") .font(.footnote).foregroundStyle(.secondary)
+                    Text("备份包含账目、预算，以及自定义分类、细分、平台、图标和顺序；导入会替换备份中包含的对应数据。旧版备份中缺少的设置会保留当前值。请妥善保管备份；删除 App 可能导致本地数据丢失。") .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("关于") { LabeledContent("版本", value: "2.0 测试版") }
             }.navigationTitle("设置").onAppear { input = budget > 0 ? String(format: "%.2f", budget) : "" }
@@ -204,7 +227,7 @@ private struct Preferences: View {
                         pendingBackup = nil
                     }
                     Button("取消", role: .cancel) { pendingBackup = nil }
-                } message: { Text("将导入 \(pendingBackup?.entries.count ?? 0) 笔账目，并替换当前账目。建议先导出当前备份。") }
+                } message: { Text("将导入 \(pendingBackup?.entries.count ?? 0) 笔账目，并替换备份中包含的账目和设置。建议先导出当前备份。") }
                 .alert("导入完成", isPresented: $restored) { Button("好", role: .cancel) {} }
                 .alert("导入失败", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) { Button("好", role: .cancel) { importError = nil } } message: { Text(importError ?? "") }
         }

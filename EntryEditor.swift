@@ -18,6 +18,19 @@ let incomeCategories: [CategoryItem] = [
     ("红包", "🧧"), ("理财", "📈"), ("出售", "🏷️"), ("其他收入", "✨")
 ].map { CategoryItem(name: $0.0, emoji: $0.1, income: true) }
 
+private struct RevealBlur: ViewModifier {
+    let radius: CGFloat
+    func body(content: Content) -> some View { content.blur(radius: radius) }
+}
+private struct ViewportBottomKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+private struct OptionsBottomKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 struct EntryEditor: View {
     @EnvironmentObject private var ledger: Ledger
     @Environment(\.dismiss) private var dismiss
@@ -25,6 +38,7 @@ struct EntryEditor: View {
     @AppStorage("customCategories") private var customJSON = "[]"
     @AppStorage("categoryOrder") private var categoryOrder = "[]"
     @AppStorage("customEntryOptions") private var customOptionsJSON = "{}"
+    @AppStorage("customOptionEmoji") private var customOptionEmojiJSON = "{}"
     let entry: Entry?
     let embedded: Bool
     @State private var amount: String
@@ -43,8 +57,12 @@ struct EntryEditor: View {
     @State private var showSort = false
     @State private var showEmoji = false
     @State private var showCurrency = false
+    @State private var viewportBottom: CGFloat = 0
+    @State private var optionsBottom: CGFloat = 0
     @State private var keyboardVisible = false
     @State private var showOptionSort = false
+    @State private var showCustomOption = false
+    @State private var customOptionKind = ""
     @State private var optionSortKind = ""
     @State private var optionSortItems: [String] = []
     @Namespace private var typeSelection
@@ -103,6 +121,7 @@ struct EntryEditor: View {
     }
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     HStack { VStack(alignment: .leading, spacing: 4) { Text("记录每一笔").font(.title2.bold()); Text("让每一份收支都有迹可循").font(.subheadline).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "sparkles").foregroundStyle(Color.accentColor) }
@@ -135,16 +154,36 @@ struct EntryEditor: View {
                             HStack { Text("细分").font(.headline); Spacer(); optionMenu(kind: "detail") }
                             if !detailOptions.isEmpty {
                                 ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack { ForEach(detailOptions, id: \.self) { item in Button { detail = detail == item ? "" : item; selectionFeedback() } label: { Text("\(detailEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(detail == item ? selectionColor : .secondary) } }
+                                    HStack { ForEach(detailOptions, id: \.self) { item in Button { detail = detail == item ? "" : item; selectionFeedback() } label: { Text("\(detailEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(detail == item ? selectionColor : .secondary).contextMenu { if customOptionEmoji(item, kind: "detail") != nil { Button("删除自定义细分", role: .destructive) { removeCustomOption(item, kind: "detail") } } } } }
                                 }
                             }
-                            TextField("其他细分", text: $detail).focused($detailFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
-                        }
+                            if !detailOptions.contains(detail) {
+                                TextField("其他细分", text: $detail).focused($detailFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
+                        }.transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)).combined(with: .modifier(active: RevealBlur(radius: 5), identity: RevealBlur(radius: 0))))
                     }
                     platformFields
                 }.padding(20).padding(.bottom, 24)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: currency != "CNY")
-            }.background(Color(uiColor: .systemGroupedBackground))
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: category.isEmpty)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: category)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: detailOptions.contains(detail))
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: allPlatforms.contains(merchant))
+            }.background(GeometryReader { geometry in
+                Color.clear.preference(key: ViewportBottomKey.self, value: geometry.frame(in: .global).maxY)
+            })
+                .onPreferenceChange(ViewportBottomKey.self) { viewportBottom = $0 }
+                .onPreferenceChange(OptionsBottomKey.self) { optionsBottom = $0 }
+                .onChange(of: category) { oldValue, newValue in
+                    guard oldValue.isEmpty, !newValue.isEmpty else { return }
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(320))
+                        guard category == newValue, optionsBottom > viewportBottom - 12, viewportBottom > 0 else { return }
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo("platform-end", anchor: .bottom) }
+                    }
+                }
+                .background(Color(uiColor: .systemGroupedBackground))
                 .scrollDismissesKeyboard(.interactively)
                 .onTapGesture { dismissKeyboard() }
                 .sensoryFeedback(.selection, trigger: amount)
@@ -169,6 +208,7 @@ struct EntryEditor: View {
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
                 .sheet(isPresented: $showSort) { sortSheet }
                 .sheet(isPresented: $showOptionSort) { optionSortSheet }
+                .sheet(isPresented: $showCustomOption) { customOptionSheet }
                 .sheet(isPresented: $showCustom) {
                     NavigationStack {
                         Form {
@@ -181,6 +221,7 @@ struct EntryEditor: View {
                 }
                 .alert("已记录", isPresented: $saved) { Button("好", role: .cancel) {} } message: { Text("账目已保存。") }
                 .alert("无法保存", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("好", role: .cancel) { error = nil } } message: { Text(error ?? "") }
+            }
         }
     }
     private var currencyPicker: some View {
@@ -276,9 +317,19 @@ struct EntryEditor: View {
     private var platformFields: some View {
         VStack(alignment: .leading, spacing: 12) {
             if !category.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
                 HStack { Text("平台").font(.headline); Spacer(); optionMenu(kind: "platform") }
-                ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(allPlatforms, id: \.self) { item in Button { merchant = merchant == item ? "" : item; selectionFeedback() } label: { Text("\(platformEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(merchant == item ? selectionColor : .secondary) } } }
-                TextField("其他平台", text: $merchant).focused($platformFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(allPlatforms, id: \.self) { item in Button { merchant = merchant == item ? "" : item; selectionFeedback() } label: { Text("\(platformEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(merchant == item ? selectionColor : .secondary).contextMenu { if customOptionEmoji(item, kind: "platform") != nil { Button("删除自定义平台", role: .destructive) { removeCustomOption(item, kind: "platform") } } } } } }
+                if !allPlatforms.contains(merchant) {
+                    TextField("其他平台", text: $merchant).focused($platformFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                }
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: OptionsBottomKey.self, value: geometry.frame(in: .global).maxY)
+                })
+                .id("platform-end")
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)).combined(with: .modifier(active: RevealBlur(radius: 5), identity: RevealBlur(radius: 0))))
             }
             Text("备注").font(.headline)
             TextField("写点什么", text: $note).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
@@ -288,13 +339,69 @@ struct EntryEditor: View {
     private func optionMenu(kind: String) -> some View {
         let options = kind == "detail" ? detailOptions : allPlatforms
         return Menu {
-            Button { if kind == "detail" { detailFocused = true } else { platformFocused = true } } label: { Label("自定义", systemImage: "plus.circle") }
+            Button { customOptionKind = kind; customName = ""; customEmoji = "✨"; showCustomOption = true } label: { Label("自定义", systemImage: "plus.circle") }
             Button { optionSortKind = kind; optionSortItems = options; showOptionSort = true } label: { Label("调整顺序", systemImage: "line.3.horizontal") }
             Divider()
             ForEach(options, id: \.self) { item in
                 Button { if kind == "detail" { detail = detail == item ? "" : item } else { merchant = merchant == item ? "" : item }; selectionFeedback() } label: { Text("\(kind == "detail" ? detailEmoji(item) : platformEmoji(item))  \(item)") }
             }
         } label: { Text("更多").foregroundStyle(.primary) }
+    }
+    private var customOptionSheet: some View {
+        NavigationStack {
+            Form {
+                Section(customOptionKind == "detail" ? "新细分" : "新平台") {
+                    TextField("名称", text: $customName)
+                    Button("选择图标 \(customEmoji)") { showEmoji = true }
+                    TextField("或输入其他 Emoji", text: $customEmoji)
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle(customOptionKind == "detail" ? "自定义细分" : "自定义平台")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { showCustomOption = false } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("添加") { addCustomOption() }
+                        .disabled(customName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .sheet(isPresented: $showEmoji) { emojiSheet }
+        }.presentationDetents([.medium, .large])
+    }
+    private func addCustomOption() {
+        let name = String(customName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(16))
+        guard !name.isEmpty else { return }
+        let kind = customOptionKind
+        let existing = kind == "detail" ? detailOptions : allPlatforms
+        if !existing.contains(name) {
+            var options = (try? JSONDecoder().decode([String: [String]].self, from: Data(customOptionsJSON.utf8))) ?? [:]
+            options[optionsKey(kind), default: []].append(name)
+            guard let data = try? JSONEncoder().encode(options), let text = String(data: data, encoding: .utf8) else { return }
+            customOptionsJSON = text
+            var icons = (try? JSONDecoder().decode([String: String].self, from: Data(customOptionEmojiJSON.utf8))) ?? [:]
+            let symbol = String(customEmoji.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1))
+            icons[optionsKey(kind) + "-" + name] = symbol.isEmpty ? "✨" : symbol
+            if let data = try? JSONEncoder().encode(icons), let text = String(data: data, encoding: .utf8) { customOptionEmojiJSON = text }
+        }
+        if kind == "detail" { detail = name } else { merchant = name }
+        selectionFeedback()
+        showCustomOption = false
+    }
+    private func removeCustomOption(_ name: String, kind: String) {
+        var options = (try? JSONDecoder().decode([String: [String]].self, from: Data(customOptionsJSON.utf8))) ?? [:]
+        let key = optionsKey(kind)
+        options[key]?.removeAll { $0 == name }
+        if let data = try? JSONEncoder().encode(options), let text = String(data: data, encoding: .utf8) { customOptionsJSON = text }
+        var icons = (try? JSONDecoder().decode([String: String].self, from: Data(customOptionEmojiJSON.utf8))) ?? [:]
+        icons.removeValue(forKey: key + "-" + name)
+        if let data = try? JSONEncoder().encode(icons), let text = String(data: data, encoding: .utf8) { customOptionEmojiJSON = text }
+        if kind == "detail" && detail == name { detail = "" }
+        if kind == "platform" && merchant == name { merchant = "" }
+    }
+    private func customOptionEmoji(_ name: String, kind: String) -> String? {
+        let icons = (try? JSONDecoder().decode([String: String].self, from: Data(customOptionEmojiJSON.utf8))) ?? [:]
+        return icons[optionsKey(kind) + "-" + name]
     }
     private var optionSortSheet: some View {
         NavigationStack {
@@ -313,7 +420,7 @@ struct EntryEditor: View {
         return order.filter { options.contains($0) } + options.filter { !order.contains($0) }
     }
     private var allPlatforms: [String] { orderedOptions(platformOptions + savedOptions("platform").filter { !platformOptions.contains($0) }, kind: "platform") }
-    private var platformOptions: [String] { category == "餐饮" ? ["美团", "饿了么", "大众点评"] : category == "购物" ? ["淘宝", "京东", "拼多多"] : category == "交通" || category == "打车" ? ["滴滴", "高德", "12306"] : [] }
+    private var platformOptions: [String] { ["线下"] + (category == "餐饮" ? ["外卖", "美团", "饿了么", "大众点评"] : category == "购物" ? ["淘宝", "京东", "拼多多"] : category == "交通" || category == "打车" ? ["滴滴", "高德", "12306"] : []) }
     private func optionsKey(_ kind: String) -> String { "\(income)-\(category)-\(kind)" }
     private func savedOptions(_ kind: String) -> [String] { ((try? JSONDecoder().decode([String: [String]].self, from: Data(customOptionsJSON.utf8))) ?? [:])[optionsKey(kind)] ?? [] }
     private func rememberOptions() {
@@ -324,8 +431,8 @@ struct EntryEditor: View {
         }
         if let data = try? JSONEncoder().encode(options), let text = String(data: data, encoding: .utf8) { customOptionsJSON = text }
     }
-    private func platformEmoji(_ name: String) -> String { ["美团":"🍱", "饿了么":"🥡", "大众点评":"⭐️", "淘宝":"🛍️", "京东":"📦", "拼多多":"🛒", "滴滴":"🚕", "高德":"🗺️", "12306":"🚄"][name] ?? "📍" }
-    private func detailEmoji(_ name: String) -> String { ["早餐":"🌅", "午餐":"🍱", "晚餐":"🌙", "外卖":"🥡", "夜宵":"🌃", "蔬菜":"🥬", "水果":"🍎", "咖啡":"☕️", "奶茶":"🧋", "地铁":"🚇", "公交":"🚌", "火车":"🚄", "日用品":"🧻", "服饰":"👕", "房租":"🏠", "工资":"💼"][name] ?? "✨" }
+    private func platformEmoji(_ name: String) -> String { customOptionEmoji(name, kind: "platform") ?? ["线下":"🏪", "外卖":"🥡", "美团":"🍱", "饿了么":"🥡", "大众点评":"⭐️", "淘宝":"🛍️", "京东":"📦", "拼多多":"🛒", "滴滴":"🚕", "高德":"🗺️", "12306":"🚄"][name] ?? "📍" }
+    private func detailEmoji(_ name: String) -> String { customOptionEmoji(name, kind: "detail") ?? ["早餐":"🌅", "午餐":"🍱", "晚餐":"🌙", "外卖":"🥡", "夜宵":"🌃", "蔬菜":"🥬", "水果":"🍎", "咖啡":"☕️", "奶茶":"🧋", "地铁":"🚇", "公交":"🚌", "火车":"🚄", "日用品":"🧻", "服饰":"👕", "房租":"🏠", "工资":"💼"][name] ?? "✨" }
     private var moreFields: some View {
         DisclosureGroup("更多信息（选填）") {
             VStack(spacing: 0) {
@@ -395,7 +502,7 @@ struct EntryEditor: View {
     }
     private var detailOptions: [String] {
         let options: [String: [String]] = [
-            "餐饮": ["早餐", "午餐", "晚餐", "外卖", "夜宵"], "买菜": ["蔬菜", "水果", "肉蛋", "超市"],
+            "餐饮": ["早餐", "午餐", "晚餐", "夜宵"], "买菜": ["蔬菜", "水果", "肉蛋", "超市"],
             "咖啡饮品": ["咖啡", "奶茶", "饮料"], "交通": ["地铁", "公交", "火车", "共享单车"],
             "购物": ["日用品", "服饰", "电子产品", "礼物", "其他"], "住房": ["房租", "物业", "维修"],
             "水电": ["水费", "电费", "燃气"], "娱乐": ["游戏", "电影", "音乐", "聚会"],
@@ -404,7 +511,7 @@ struct EntryEditor: View {
             "工资": ["基本工资", "绩效", "补贴"], "兼职": ["项目", "劳务"], "退款": ["购物退款", "其他退款"]
         ]
         let defaults = options[category] ?? []
-        return orderedOptions(defaults + savedOptions("detail").filter { !defaults.contains($0) }, kind: "detail")
+        return orderedOptions(defaults + savedOptions("detail").filter { !defaults.contains($0) && !(category == "餐饮" && $0 == "外卖") }, kind: "detail")
     }
 }
 

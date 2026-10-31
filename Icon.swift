@@ -11,8 +11,19 @@ func draw(name: String, dark: Bool) throws {
     NSBezierPath(rect: NSRect(x: 0, y: 0, width: 1024, height: 1024)).fill()
     let ink = dark ? color(0.91, 0.95, 0.93) : color(0.12, 0.20, 0.19)
     ink.setStroke()
-    let wallet = NSBezierPath(roundedRect: NSRect(x: 225, y: 305, width: 574, height: 414), xRadius: 112, yRadius: 112)
-    wallet.lineWidth = 52
+    // The upper edge suggests a folded wallet behind the main body.
+    let upper = NSBezierPath()
+    upper.move(to: NSPoint(x: 229, y: 638))
+    upper.curve(to: NSPoint(x: 300, y: 730), controlPoint1: NSPoint(x: 229, y: 685), controlPoint2: NSPoint(x: 260, y: 716))
+    upper.line(to: NSPoint(x: 675, y: 785))
+    upper.curve(to: NSPoint(x: 754, y: 715), controlPoint1: NSPoint(x: 720, y: 794), controlPoint2: NSPoint(x: 754, y: 760))
+    upper.line(to: NSPoint(x: 754, y: 650))
+    upper.lineWidth = 44
+    upper.lineJoinStyle = .round
+    upper.lineCapStyle = .round
+    upper.stroke()
+    let wallet = NSBezierPath(roundedRect: NSRect(x: 225, y: 305, width: 574, height: 350), xRadius: 76, yRadius: 76)
+    wallet.lineWidth = 44
     wallet.stroke()
     let flap = NSBezierPath(roundedRect: NSRect(x: 565, y: 430, width: 238, height: 140), xRadius: 68, yRadius: 68)
     ink.setFill(); flap.fill()
