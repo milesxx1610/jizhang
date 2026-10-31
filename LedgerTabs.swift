@@ -32,16 +32,16 @@ private struct TabEntrance<Content: View>: View {
 
     var body: some View {
         content
-            .scaleEffect(appeared || reduceMotion ? 1 : 0.99)
+            .scaleEffect(appeared || reduceMotion ? 1 : 0.99, anchor: .top)
             .opacity(appeared || reduceMotion ? 1 : 0.94)
-            .task(id: selected) {
-                guard selected == tab, !reduceMotion else { appeared = true; return }
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { appeared = false }
-                try? await Task.sleep(for: .milliseconds(15))
-                guard !Task.isCancelled else { return }
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.84)) { appeared = true }
+            .onChange(of: selected) { _, current in
+                if current == tab {
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.9)) { appeared = true }
+                } else {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) { appeared = false }
+                }
             }
     }
 }

@@ -20,7 +20,8 @@ let incomeCategories: [CategoryItem] = [
 
 private struct RevealBlur: ViewModifier {
     let radius: CGFloat
-    func body(content: Content) -> some View { content.blur(radius: radius) }
+    let scale: CGFloat
+    func body(content: Content) -> some View { content.blur(radius: radius).scaleEffect(scale, anchor: .center) }
 }
 private struct ViewportBottomKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
@@ -161,13 +162,13 @@ struct EntryEditor: View {
                                 TextField("其他细分", text: $detail).focused($detailFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
                                     .transition(.opacity.combined(with: .move(edge: .top)))
                             }
-                        }.transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)).combined(with: .modifier(active: RevealBlur(radius: 5), identity: RevealBlur(radius: 0))))
+                        }.transition(reduceMotion ? .opacity : .opacity.combined(with: .modifier(active: RevealBlur(radius: 5, scale: 0.97), identity: RevealBlur(radius: 0, scale: 1))))
                     }
                     platformFields
                 }.padding(20).padding(.bottom, 24)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: currency != "CNY")
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: category.isEmpty)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: category)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.32), value: category.isEmpty)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.32), value: category)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: detailOptions.contains(detail))
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: allPlatforms.contains(merchant))
             }.background(GeometryReader { geometry in
@@ -178,9 +179,12 @@ struct EntryEditor: View {
                 .onChange(of: category) { oldValue, newValue in
                     guard oldValue.isEmpty, !newValue.isEmpty else { return }
                     Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(320))
-                        guard category == newValue, optionsBottom > viewportBottom - 12, viewportBottom > 0 else { return }
-                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo("platform-end", anchor: .bottom) }
+                        // Wait for the inserted content to acquire its final layout.
+                        try? await Task.sleep(for: .milliseconds(250))
+                        guard category == newValue else { return }
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
+                            proxy.scrollTo("platform-end", anchor: .bottom)
+                        }
                     }
                 }
                 .background(Color(uiColor: .systemGroupedBackground))
@@ -329,7 +333,7 @@ struct EntryEditor: View {
                     Color.clear.preference(key: OptionsBottomKey.self, value: geometry.frame(in: .global).maxY)
                 })
                 .id("platform-end")
-                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)).combined(with: .modifier(active: RevealBlur(radius: 5), identity: RevealBlur(radius: 0))))
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .modifier(active: RevealBlur(radius: 5, scale: 0.97), identity: RevealBlur(radius: 0, scale: 1))))
             }
             Text("备注").font(.headline)
             TextField("写点什么", text: $note).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
