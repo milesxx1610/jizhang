@@ -42,6 +42,7 @@ struct EntryEditor: View {
     @AppStorage("customOptionEmoji") private var customOptionEmojiJSON = "{}"
     let entry: Entry?
     let embedded: Bool
+    let tabSelection: Int?
     @State private var amount: String
     @State private var category: String
     @State private var note: String
@@ -105,8 +106,8 @@ struct EntryEditor: View {
     private let selectionColor = Color(red: 0.12, green: 0.52, blue: 0.44)
     private var rateKey: String { "\(currency)-\(Calendar.current.startOfDay(for: date).timeIntervalSince1970)" }
 
-    init(entry: Entry?, embedded: Bool = false) {
-        self.entry = entry; self.embedded = embedded
+    init(entry: Entry?, embedded: Bool = false, tabSelection: Int? = nil) {
+        self.entry = entry; self.embedded = embedded; self.tabSelection = tabSelection
         _amount = State(initialValue: entry.map { NSDecimalNumber(decimal: $0.amount).stringValue } ?? "")
         _category = State(initialValue: entry?.category ?? "")
         _note = State(initialValue: entry?.note ?? "")
@@ -124,7 +125,7 @@ struct EntryEditor: View {
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    HStack { VStack(alignment: .leading, spacing: 4) { Text("记录每一笔").font(.title2.bold()); Text("让每一份收支都有迹可循").font(.subheadline).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "sparkles").foregroundStyle(Color.accentColor) }
+                    HStack { VStack(alignment: .leading, spacing: 4) { Text("记账").font(.largeTitle.bold()); Text("让每一份收支都有迹可循").font(.subheadline).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "sparkles").foregroundStyle(Color.accentColor) }
                     typeToggle
                         .onChange(of: income) { _, _ in category = ""; detail = "" }
                     VStack(alignment: .leading, spacing: 8) {
@@ -187,6 +188,7 @@ struct EntryEditor: View {
                     }
                 }
                 .background(Color(uiColor: .systemGroupedBackground))
+                .modifier(TabArrival(selected: tabSelection ?? -1, tab: 1))
                 .scrollDismissesKeyboard(.interactively)
                 .onTapGesture { dismissKeyboard() }
                 .sensoryFeedback(.selection, trigger: amount)

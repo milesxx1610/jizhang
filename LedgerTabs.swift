@@ -12,9 +12,13 @@ struct LedgerTabs: View {
     @State private var target: EditorTarget?
     @State private var selected = 1
     var body: some View {
-        TabView(selection: $selected) {
+        TabView(selection: Binding(get: { selected }, set: { newValue in
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { selected = newValue }
+        })) {
             Dashboard(target: $target, selected: selected).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
-            EntryEditor(entry: nil, embedded: true).modifier(TabArrival(selected: selected, tab: 1)).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
+            EntryEditor(entry: nil, embedded: true, tabSelection: selected).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
             Insights(selected: selected).tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
         }
         .tint(accent)
@@ -23,7 +27,7 @@ struct LedgerTabs: View {
     }
 }
 
-private struct TabArrival: ViewModifier {
+struct TabArrival: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let selected: Int
     let tab: Int
@@ -84,7 +88,7 @@ private struct Dashboard: View {
             .background(Color(uiColor: .systemGroupedBackground))
             .modifier(TabArrival(selected: selected, tab: 0))
             .navigationTitle("明细").navigationBarTitleDisplayMode(.large)
-            .searchable(text: $search, prompt: "搜索分类或备注")
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜索分类或备注")
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { target = EditorTarget(entry: nil) } label: { Image(systemName: "plus") }.accessibilityLabel("记一笔") } }
             .alert("删除这笔账目？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
                 Button("删除", role: .destructive) { if let item = deleting { _ = ledger.save(ledger.entries.filter { $0.id != item.id }) }; deleting = nil }
