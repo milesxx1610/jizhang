@@ -32,11 +32,10 @@ private struct TabEntrance<Content: View>: View {
 
     var body: some View {
         content
-            .scaleEffect(appeared || reduceMotion ? 1 : 0.99, anchor: .top)
-            .opacity(appeared || reduceMotion ? 1 : 0.94)
+            .opacity(appeared || reduceMotion ? 1 : 0.92)
             .onChange(of: selected) { _, current in
                 if current == tab {
-                    withAnimation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.9)) { appeared = true }
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.34)) { appeared = true }
                 } else {
                     var transaction = Transaction()
                     transaction.disablesAnimations = true

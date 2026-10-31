@@ -10,6 +10,15 @@ func draw(name: String, dark: Bool) throws {
     (dark ? color(0.07, 0.10, 0.12) : color(0.96, 0.96, 0.94)).setFill()
     NSBezierPath(rect: NSRect(x: 0, y: 0, width: 1024, height: 1024)).fill()
     let ink = dark ? color(0.91, 0.95, 0.93) : color(0.12, 0.20, 0.19)
+    NSGraphicsContext.saveGraphicsState()
+    if !dark {
+        // Enlarge the light wallet around its center; the dark icon stays unchanged.
+        let transform = NSAffineTransform()
+        transform.translateX(by: 512, yBy: 545)
+        transform.scale(by: 1.08)
+        transform.translateX(by: -512, yBy: -545)
+        transform.concat()
+    }
     ink.setStroke()
     // The upper edge suggests a folded wallet behind the main body.
     let upper = NSBezierPath()
@@ -29,6 +38,7 @@ func draw(name: String, dark: Bool) throws {
     ink.setFill(); flap.fill()
     color(0.33, 0.78, 0.65).setFill()
     NSBezierPath(ovalIn: NSRect(x: 626, y: 477, width: 46, height: 46)).fill()
+    NSGraphicsContext.restoreGraphicsState()
     image.unlockFocus()
     guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:]) else { fatalError("icon encoding failed") }
     try png.write(to: root.appendingPathComponent(name))
