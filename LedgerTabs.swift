@@ -13,9 +13,9 @@ struct LedgerTabs: View {
     @State private var selected = 1
     var body: some View {
         TabView(selection: $selected) {
-            Dashboard(target: $target).modifier(TabArrival(selected: selected, tab: 0)).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
+            Dashboard(target: $target, selected: selected).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
             EntryEditor(entry: nil, embedded: true).modifier(TabArrival(selected: selected, tab: 1)).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
-            Insights().modifier(TabArrival(selected: selected, tab: 2)).tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
+            Insights(selected: selected).tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
         }
         .tint(accent)
         .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger) }
@@ -44,6 +44,7 @@ private struct TabArrival: ViewModifier {
 private struct Dashboard: View {
     @EnvironmentObject private var ledger: Ledger
     @Binding var target: EditorTarget?
+    let selected: Int
     @State private var month = Date()
     @State private var deleting: Entry?
     @State private var search = ""
@@ -81,6 +82,7 @@ private struct Dashboard: View {
                 }.padding(.horizontal, 20).padding(.bottom, 40)
             }
             .background(Color(uiColor: .systemGroupedBackground))
+            .modifier(TabArrival(selected: selected, tab: 0))
             .navigationTitle("明细").navigationBarTitleDisplayMode(.large)
             .searchable(text: $search, prompt: "搜索分类或备注")
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { target = EditorTarget(entry: nil) } label: { Image(systemName: "plus") }.accessibilityLabel("记一笔") } }
@@ -147,6 +149,7 @@ private struct EntryRow: View {
 
 private struct Insights: View {
     @EnvironmentObject private var ledger: Ledger
+    let selected: Int
     @State private var month = Date()
     @State private var showingSettings = false
     private var items: [Entry] { monthItems(ledger.entries, month) }
@@ -171,7 +174,9 @@ private struct Insights: View {
                     }.padding(20).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22))
                     Text("按账目分类汇总，仅统计所选月份的支出。 ").font(.footnote).foregroundStyle(.secondary)
                 }.padding(20)
-            }.background(Color(uiColor: .systemGroupedBackground)).navigationTitle("统计")
+            }.background(Color(uiColor: .systemGroupedBackground))
+                .modifier(TabArrival(selected: selected, tab: 2))
+                .navigationTitle("统计")
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showingSettings = true } label: { Image(systemName: "gearshape") }.accessibilityLabel("设置") } }
                 .sheet(isPresented: $showingSettings) { Preferences() }
         }.tint(accent)
