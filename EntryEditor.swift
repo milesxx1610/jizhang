@@ -145,8 +145,20 @@ struct EntryEditor: View {
                             if amountFocused && !amount.isEmpty { Button { amount = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.accessibilityLabel("清除金额") }
                         }
                         DatePicker("日期", selection: $date, displayedComponents: .date).font(.subheadline).padding(.top, 6)
-                        if currency != "CNY" { HStack { Text(rateLoading ? "正在获取参考汇率…" : rateFailed ? "汇率获取失败，请检查网络。" : "按参考汇率折算，实际扣款可能不同。") .font(.caption).foregroundStyle(.secondary); if rateFailed { Button("重试") { Task { await loadPreviewRate() } }.font(.caption) } }.transition(.opacity.combined(with: .move(edge: .top))) }
-                    }.animation(.spring(response: 0.36, dampingFraction: 0.86), value: currency != "CNY").padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
+                        if currency != "CNY" {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(rateLoading ? "正在获取参考汇率…" : rateFailed ? "汇率获取失败，请检查网络。" : "按参考汇率折算，实际扣款可能不同。")
+                                    if rateFailed { Button("重试") { Task { await loadPreviewRate() } } }
+                                }
+                                if !rateLoading, !rateFailed, previewKey == rateKey, let rate = previewRate {
+                                    Text("参考汇率：1 \(currency) = \(NSDecimalNumber(decimal: rate).stringValue) CNY")
+                                }
+                            }
+                            .font(.caption).foregroundStyle(.secondary)
+                            .transition(revealTransition)
+                        }
+                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.32), value: currency != "CNY").padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
                     HStack { Text("分类").font(.headline); Spacer(); categoryMenu }
                     categoryGrid
                     if !category.isEmpty && !categories.contains(where: { $0.name == category }) { Text("原有分类：\(category)").font(.subheadline).foregroundStyle(.secondary) }
@@ -529,4 +541,3 @@ struct EntryEditor: View {
         return orderedOptions(defaults + savedOptions("detail").filter { !defaults.contains($0) && !(category == "餐饮" && $0 == "外卖") }, kind: "detail")
     }
 }
-
