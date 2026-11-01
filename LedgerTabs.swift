@@ -47,6 +47,16 @@ struct TabArrival: ViewModifier {
     }
 }
 
+private struct DetailBottomEdgeEffect: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.scrollEdgeEffectHidden(true, for: .bottom)
+        } else {
+            content
+        }
+    }
+}
+
 private struct SearchPullOffsetKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
@@ -124,6 +134,7 @@ private struct Dashboard: View {
             .onChange(of: selected) { _, newValue in
                 if newValue != 0 && search.isEmpty { showSearch = false; searchFocused = false }
             }
+            .modifier(DetailBottomEdgeEffect())
             .accessibilityAction(named: "显示搜索") { showSearch = true; searchFocused = true }
             .background(Color(uiColor: .systemGroupedBackground))
             .modifier(TabArrival(selected: selected, tab: 0))
