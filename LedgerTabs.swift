@@ -36,6 +36,7 @@ struct TabArrival: ViewModifier {
 
     func body(content: Content) -> some View {
         content.scaleEffect(scale)
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .onChange(of: selected) { _, newValue in
                 guard newValue == tab, !reduceMotion else { scale = 1; return }
                 var transaction = Transaction()
