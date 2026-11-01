@@ -21,6 +21,7 @@ struct LedgerTabs: View {
             EntryEditor(entry: nil, embedded: true, tabSelection: selected).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
             Insights(selected: selected).tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
         }
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .tint(accent)
         .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger) }
         .alert("提示", isPresented: Binding(get: { ledger.error != nil }, set: { if !$0 { ledger.error = nil } })) { Button("知道了") { ledger.error = nil } } message: { Text(ledger.error ?? "") }
@@ -58,6 +59,8 @@ private struct Dashboard: View {
     @State private var deleting: Entry?
     @State private var search = ""
     @State private var showSearch = false
+    @State private var detailScrollOffset: CGFloat = 0
+    @State private var pullStartedAtTop: Bool?
     @FocusState private var searchFocused: Bool
     @AppStorage("monthlyBudget") private var budget = 0.0
     private var items: [Entry] { monthItems(ledger.entries, month) }
@@ -106,8 +109,17 @@ private struct Dashboard: View {
             .scrollBounceBehavior(.always, axes: .vertical)
             .coordinateSpace(name: "detail-scroll")
             .onPreferenceChange(SearchPullOffsetKey.self) { offset in
-                if offset > 60 && !showSearch { withAnimation(.easeInOut(duration: 0.2)) { showSearch = true } }
+                detailScrollOffset = offset
             }
+            .simultaneousGesture(DragGesture(minimumDistance: 10)
+                .onChanged { value in
+                    if pullStartedAtTop == nil { pullStartedAtTop = detailScrollOffset >= -1 }
+                    guard pullStartedAtTop == true, !showSearch,
+                          value.translation.height > 55,
+                          value.translation.height > abs(value.translation.width) else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) { showSearch = true }
+                }
+                .onEnded { _ in pullStartedAtTop = nil })
             .onChange(of: selected) { _, newValue in
                 if newValue != 0 && search.isEmpty { showSearch = false; searchFocused = false }
             }
