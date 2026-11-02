@@ -26,7 +26,7 @@ struct LedgerTabs: View {
         }
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .tint(accent)
-        .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger) }
+        .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger).tint(accent) }
         .alert("提示", isPresented: Binding(get: { ledger.error != nil }, set: { if !$0 { ledger.error = nil } })) { Button("知道了") { ledger.error = nil } } message: { Text(ledger.error ?? "") }
     }
 }
