@@ -35,11 +35,12 @@ struct TabArrival: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let selected: Int
     let tab: Int
+    var showsBackground = true
     @State private var scale: CGFloat = 1
 
     func body(content: Content) -> some View {
         content.scaleEffect(scale)
-            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .background((showsBackground ? Color(uiColor: .systemGroupedBackground) : Color.clear).ignoresSafeArea())
             .onChange(of: selected) { _, newValue in
                 guard newValue == tab, !reduceMotion else { scale = 1; return }
                 var transaction = Transaction()
@@ -47,16 +48,6 @@ struct TabArrival: ViewModifier {
                 withTransaction(transaction) { scale = 0.995 }
                 withAnimation(.easeOut(duration: 0.24)) { scale = 1 }
             }
-    }
-}
-
-private struct DetailEdgeEffect: ViewModifier {
-    @ViewBuilder func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.scrollEdgeEffectHidden(true, for: [.top, .bottom])
-        } else {
-            content
-        }
     }
 }
 
@@ -129,6 +120,7 @@ private struct Dashboard: View {
                     .background(GeometryReader { geometry in
                         Color.clear.preference(key: SearchPullOffsetKey.self, value: geometry.frame(in: .named("detail-scroll")).minY)
                     })
+                    .modifier(TabArrival(selected: selected, tab: 0, showsBackground: false))
             }
             .scrollBounceBehavior(.always, axes: .vertical)
             .scrollDismissesKeyboard(.interactively)
@@ -154,14 +146,11 @@ private struct Dashboard: View {
             .onChange(of: selected) { _, newValue in
                 if newValue != 0 { searchFocused = false; pullStartedAtTop = nil; searchGestureHandled = false }
             }
-            .modifier(DetailEdgeEffect())
-            .clipped()
             .accessibilityAction(named: "显示搜索") { showSearch = true; searchFocused = true }
             .background {
                 Color(uiColor: .systemGroupedBackground).contentShape(Rectangle())
                     .onTapGesture { searchFocused = false }
             }
-            .modifier(TabArrival(selected: selected, tab: 0))
             .navigationTitle("").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { target = EditorTarget(entry: nil) } label: { Image(systemName: "plus") }.accessibilityLabel("记一笔") } }
             .alert("删除这笔账目？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
