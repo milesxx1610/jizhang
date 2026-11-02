@@ -148,7 +148,7 @@ private struct Dashboard: View {
             }
             .accessibilityAction(named: "显示搜索") { showSearch = true; searchFocused = true }
             .background {
-                Color(uiColor: .systemGroupedBackground).contentShape(Rectangle())
+                Color(uiColor: .systemGroupedBackground).ignoresSafeArea().contentShape(Rectangle())
                     .onTapGesture { searchFocused = false }
             }
             .navigationTitle("").navigationBarTitleDisplayMode(.inline)
