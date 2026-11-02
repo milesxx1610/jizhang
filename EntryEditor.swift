@@ -154,13 +154,12 @@ struct EntryEditor: View {
                                         Text(rateLoading ? "正在获取参考汇率…" : rateFailed ? "汇率获取失败，请检查网络。" : "按参考汇率折算，实际扣款可能不同。")
                                         if rateFailed { Button("重试") { Task { await loadPreviewRate() } } }
                                     }
-                                    if !rateLoading, !rateFailed, previewKey == rateKey, let rate = previewRate {
-                                        Text("参考汇率：1 \(currency) = \(NSDecimalNumber(decimal: rate).stringValue) CNY")
-                                            .contentTransition(.opacity)
-                                    }
+                                    let hasRate = !rateLoading && !rateFailed && previewKey == rateKey && previewRate != nil
+                                    Text(hasRate ? "参考汇率：1 \(currency) = \(NSDecimalNumber(decimal: previewRate ?? 0).stringValue) CNY" : " ")
+                                        .contentTransition(.opacity)
+                                        .opacity(hasRate ? 1 : 0)
+                                        .accessibilityHidden(!hasRate)
                                 }
-                                .id(currency)
-                                .transition(.opacity)
                             }
                             .font(.caption).foregroundStyle(.secondary)
                             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: currency)
