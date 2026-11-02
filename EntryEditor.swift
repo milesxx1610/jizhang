@@ -226,7 +226,7 @@ struct EntryEditor: View {
                         }
                 }
                 .navigationTitle(embedded ? "" : "编辑账目")
-                .navigationBarTitleDisplayMode(embedded ? .large : .inline)
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
                 .task(id: rateKey) { await loadPreviewRate() }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
