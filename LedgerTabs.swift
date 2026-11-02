@@ -113,7 +113,7 @@ private struct Dashboard: View {
                             }
                         }
                     }
-                }.padding(.horizontal, 20).padding(.bottom, 40)
+                }.padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 40)
                     .background {
                         Color.clear.contentShape(Rectangle()).onTapGesture { searchFocused = false }
                     }
