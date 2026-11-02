@@ -1,6 +1,7 @@
 import SwiftUI
 import Charts
 import UniformTypeIdentifiers
+import UIKit
 
 private let accent = Color(red: 0.12, green: 0.52, blue: 0.44)
 private func moneyText(_ value: Decimal, currency: String = "CNY") -> String { (value as NSDecimalNumber).doubleValue.formatted(.currency(code: currency).precision(.fractionLength(2...3))) }
@@ -13,6 +14,8 @@ struct LedgerTabs: View {
     @State private var selected = 1
     var body: some View {
         TabView(selection: Binding(get: { selected }, set: { newValue in
+            guard newValue != selected else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
             withTransaction(transaction) { selected = newValue }
@@ -72,6 +75,7 @@ private struct Dashboard: View {
     @State private var showSearch = false
     @State private var detailScrollOffset: CGFloat = 0
     @State private var pullStartedAtTop: Bool?
+    @State private var searchGestureHandled = false
     @FocusState private var searchFocused: Bool
     @AppStorage("monthlyBudget") private var budget = 0.0
     private var items: [Entry] { monthItems(ledger.entries, month) }
@@ -86,8 +90,14 @@ private struct Dashboard: View {
                         HStack {
                             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                             TextField("搜索分类或备注", text: $search).focused($searchFocused)
-                            Button { search = ""; searchFocused = false; withAnimation(.easeInOut(duration: 0.2)) { showSearch = false } } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.accessibilityLabel("关闭搜索")
                         }.padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    if !showSearch && !search.isEmpty {
+                        HStack {
+                            Text("正在搜索：\(search)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Spacer()
+                            Button("清除搜索") { search = "" }.font(.caption)
+                        }
                     }
                     header
                     if items.contains(where: { $0.cnyAmount == nil }) { Text("部分外币账目缺少汇率，未计入人民币汇总。请编辑并重新保存。") .font(.footnote).foregroundStyle(.orange) }
@@ -113,11 +123,15 @@ private struct Dashboard: View {
                         }
                     }
                 }.padding(.horizontal, 20).padding(.bottom, 40)
+                    .background {
+                        Color.clear.contentShape(Rectangle()).onTapGesture { searchFocused = false }
+                    }
                     .background(GeometryReader { geometry in
                         Color.clear.preference(key: SearchPullOffsetKey.self, value: geometry.frame(in: .named("detail-scroll")).minY)
                     })
             }
             .scrollBounceBehavior(.always, axes: .vertical)
+            .scrollDismissesKeyboard(.interactively)
             .coordinateSpace(name: "detail-scroll")
             .onPreferenceChange(SearchPullOffsetKey.self) { offset in
                 detailScrollOffset = offset
@@ -125,18 +139,28 @@ private struct Dashboard: View {
             .simultaneousGesture(DragGesture(minimumDistance: 10)
                 .onChanged { value in
                     if pullStartedAtTop == nil { pullStartedAtTop = detailScrollOffset >= -1 }
-                    guard pullStartedAtTop == true, !showSearch,
-                          value.translation.height > 55,
-                          value.translation.height > abs(value.translation.width) else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) { showSearch = true }
+                    guard !searchGestureHandled,
+                          abs(value.translation.height) > abs(value.translation.width) else { return }
+                    if showSearch && value.translation.height < -25 {
+                        searchGestureHandled = true
+                        searchFocused = false
+                        withAnimation(.easeInOut(duration: 0.2)) { showSearch = false }
+                    } else if !showSearch && pullStartedAtTop == true && value.translation.height > 55 {
+                        searchGestureHandled = true
+                        withAnimation(.easeInOut(duration: 0.2)) { showSearch = true }
+                    }
                 }
-                .onEnded { _ in pullStartedAtTop = nil })
+                .onEnded { _ in pullStartedAtTop = nil; searchGestureHandled = false })
             .onChange(of: selected) { _, newValue in
-                if newValue != 0 { searchFocused = false; pullStartedAtTop = nil }
+                if newValue != 0 { searchFocused = false; pullStartedAtTop = nil; searchGestureHandled = false }
             }
             .modifier(DetailEdgeEffect())
+            .clipped()
             .accessibilityAction(named: "显示搜索") { showSearch = true; searchFocused = true }
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background {
+                Color(uiColor: .systemGroupedBackground).contentShape(Rectangle())
+                    .onTapGesture { searchFocused = false }
+            }
             .modifier(TabArrival(selected: selected, tab: 0))
             .navigationTitle("").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { target = EditorTarget(entry: nil) } label: { Image(systemName: "plus") }.accessibilityLabel("记一笔") } }
@@ -243,6 +267,7 @@ private struct Preferences: View {
     @EnvironmentObject private var ledger: Ledger
     @AppStorage("monthlyBudget") private var budget = 0.0
     @State private var input = ""
+    @FocusState private var budgetFocused: Bool
     @State private var message = false
     @State private var exporting = false
     @State private var importing = false
@@ -254,7 +279,7 @@ private struct Preferences: View {
         NavigationStack {
             Form {
                 Section("月度预算") {
-                    HStack { Text("¥"); TextField("不设置", text: $input).keyboardType(.decimalPad) }
+                    HStack { Text("¥"); TextField("不设置", text: $input).keyboardType(.decimalPad).focused($budgetFocused) }
                     Button("保存预算") { let value = Double(input.replacingOccurrences(of: ",", with: ".")) ?? -1; if value >= 0 && value <= 999999999 { budget = value; message = true } }
                     Text(budget > 0 ? "当前预算：\(moneyText(Decimal(budget)))。输入 0 可关闭。" : "设置后，首页显示本月预算进度。") .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -265,7 +290,10 @@ private struct Preferences: View {
                     Text("备份包含账目、预算，以及自定义分类、细分、平台、图标和顺序；导入会替换备份中包含的对应数据。旧版备份中缺少的设置会保留当前值。请妥善保管备份；删除 App 可能导致本地数据丢失。") .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("关于") { LabeledContent("版本", value: "2.0 测试版") }
-            }.navigationTitle("设置").onAppear { input = budget > 0 ? String(format: "%.2f", budget) : "" }
+            }.scrollDismissesKeyboard(.interactively)
+                .onTapGesture { budgetFocused = false }
+                .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("完成") { budgetFocused = false } } }
+                .navigationTitle("设置").onAppear { input = budget > 0 ? String(format: "%.2f", budget) : "" }
                 .alert("预算已保存", isPresented: $message) { Button("好", role: .cancel) {} }
                 .fileExporter(isPresented: $exporting, document: document, contentType: .json, defaultFilename: "记账备份") { result in if case .failure = result { ledger.error = "导出失败，请重试。" } }
                 .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
@@ -296,4 +324,5 @@ private struct LedgerDocument: FileDocument {
     init(configuration: ReadConfiguration) throws { data = configuration.file.regularFileContents ?? Data() }
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
 }
+
 
