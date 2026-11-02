@@ -76,7 +76,6 @@ private struct Dashboard: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    Text("明细").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
                     if showSearch {
                         HStack {
                             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -151,7 +150,7 @@ private struct Dashboard: View {
                 Color(uiColor: .systemGroupedBackground).ignoresSafeArea().contentShape(Rectangle())
                     .onTapGesture { searchFocused = false }
             }
-            .navigationTitle("").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("明细").navigationBarTitleDisplayMode(.large)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { target = EditorTarget(entry: nil) } label: { Image(systemName: "plus") }.accessibilityLabel("记一笔") } }
             .alert("删除这笔账目？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
                 Button("删除", role: .destructive) { if let item = deleting { _ = ledger.save(ledger.entries.filter { $0.id != item.id }) }; deleting = nil }
@@ -228,7 +227,6 @@ private struct Insights: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text("统计").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
                     HStack { Button { shift(-1) } label: { Image(systemName: "chevron.left") }; Spacer(); Text(month, format: .dateTime.year().month()).font(.headline); Spacer(); Button { shift(1) } label: { Image(systemName: "chevron.right") } }.padding(.vertical, 10)
                     if items.contains(where: { $0.cnyAmount == nil }) { Text("部分外币账目缺少汇率，未计入统计。") .font(.footnote).foregroundStyle(.orange) }
                     VStack(alignment: .leading, spacing: 14) {
@@ -244,7 +242,7 @@ private struct Insights: View {
                 }.padding(20)
             }.background(Color(uiColor: .systemGroupedBackground))
                 .modifier(TabArrival(selected: selected, tab: 2))
-                .navigationTitle("").navigationBarTitleDisplayMode(.inline)
+                .navigationTitle("统计").navigationBarTitleDisplayMode(.large)
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showingSettings = true } label: { Image(systemName: "gearshape") }.accessibilityLabel("设置") } }
                 .sheet(isPresented: $showingSettings) { Preferences() }
         }.tint(accent)
