@@ -134,7 +134,9 @@ struct EntryEditor: View {
                             Button { amountFocused = false; showCurrency = true } label: {
                                 Text(currency == "USD" ? "$" : currency == "JPY" ? "JPY" : "¥")
                                     .font(.system(size: 27, weight: .medium)).foregroundStyle(.secondary)
-                                    .fixedSize().id(currency).transition(.opacity)
+                                    .contentTransition(.opacity)
+                                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: currency)
+                                    .fixedSize()
                             }
                             .buttonStyle(.plain).accessibilityLabel("选择货币，当前\(currency)")
                             .popover(isPresented: $showCurrency, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
@@ -146,19 +148,25 @@ struct EntryEditor: View {
                         }
                         DatePicker("日期", selection: $date, displayedComponents: .date).font(.subheadline).padding(.top, 6)
                         if currency != "CNY" {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text(rateLoading ? "正在获取参考汇率…" : rateFailed ? "汇率获取失败，请检查网络。" : "按参考汇率折算，实际扣款可能不同。")
-                                    if rateFailed { Button("重试") { Task { await loadPreviewRate() } } }
+                            VStack(alignment: .leading, spacing: 0) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(rateLoading ? "正在获取参考汇率…" : rateFailed ? "汇率获取失败，请检查网络。" : "按参考汇率折算，实际扣款可能不同。")
+                                        if rateFailed { Button("重试") { Task { await loadPreviewRate() } } }
+                                    }
+                                    if !rateLoading, !rateFailed, previewKey == rateKey, let rate = previewRate {
+                                        Text("参考汇率：1 \(currency) = \(NSDecimalNumber(decimal: rate).stringValue) CNY")
+                                            .contentTransition(.opacity)
+                                    }
                                 }
-                                if !rateLoading, !rateFailed, previewKey == rateKey, let rate = previewRate {
-                                    Text("参考汇率：1 \(currency) = \(NSDecimalNumber(decimal: rate).stringValue) CNY")
-                                }
+                                .id(currency)
+                                .transition(.opacity)
                             }
                             .font(.caption).foregroundStyle(.secondary)
+                            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: currency)
                             .transition(revealTransition)
                         }
-                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.32), value: currency != "CNY").padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
+                    }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
                     HStack { Text("分类").font(.headline); Spacer(); categoryMenu }
                     categoryGrid
                     if !category.isEmpty && !categories.contains(where: { $0.name == category }) { Text("原有分类：\(category)").font(.subheadline).foregroundStyle(.secondary) }
@@ -248,7 +256,7 @@ struct EntryEditor: View {
                 Button {
                     showCurrency = false
                     if currency != option.0 { selectionFeedback() }
-                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) { currency = option.0 }
+                    currency = option.0
                 } label: {
                     HStack { Text(option.1); Spacer(); if currency == option.0 { Image(systemName: "checkmark") } }
                         .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).padding(.horizontal, 16).padding(.vertical, 12)
@@ -385,6 +393,7 @@ struct EntryEditor: View {
                 }
             }
             .scrollDismissesKeyboard(.interactively)
+            .onTapGesture { dismissKeyboard() }
             .navigationTitle(customOptionKind == "detail" ? "自定义细分" : "自定义平台")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -541,3 +550,4 @@ struct EntryEditor: View {
         return orderedOptions(defaults + savedOptions("detail").filter { !defaults.contains($0) && !(category == "餐饮" && $0 == "外卖") }, kind: "detail")
     }
 }
+
