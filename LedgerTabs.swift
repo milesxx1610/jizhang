@@ -11,13 +11,6 @@ private func sum(_ entries: [Entry], income: Bool) -> Decimal { entries.filter {
 private final class RapidTabBarController: UITabBarController {
     var onVisible: ((UIWindow) -> Void)?
     var onHidden: (() -> Void)?
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow), name: UIResponder.keyboardWillShowNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide), name: UIResponder.keyboardWillHideNotification, object: nil)
-    }
-    @objc private func keyboardWillShow() { tabBar.isHidden = true }
-    @objc private func keyboardWillHide() { tabBar.isHidden = false }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         if let window = view.window { onVisible?(window) }
@@ -37,6 +30,7 @@ struct LedgerTabs: View {
     var body: some View {
         NativeLedgerTabs(target: $target, selected: $selected, ledger: ledger, reduceMotion: reduceMotion)
             .ignoresSafeArea(.container, edges: .bottom)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger).tint(accent) }
             .alert("提示", isPresented: Binding(get: { ledger.error != nil }, set: { if !$0 { ledger.error = nil } })) {
