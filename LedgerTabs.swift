@@ -8,58 +8,71 @@ private func moneyText(_ value: Decimal, currency: String = "CNY") -> String { (
 private func monthItems(_ entries: [Entry], _ date: Date) -> [Entry] { entries.filter { Calendar.current.isDate($0.date, equalTo: date, toGranularity: .month) }.sorted { $0.date > $1.date } }
 private func sum(_ entries: [Entry], income: Bool) -> Decimal { entries.filter { $0.income == income }.reduce(0) { $0 + ($1.cnyAmount ?? 0) } }
 
-private struct DepartureScaleKey: EnvironmentKey {
-    static let defaultValue: CGFloat = 1
-}
-extension EnvironmentValues {
-    var departureScale: CGFloat {
-        get { self[DepartureScaleKey.self] }
-        set { self[DepartureScaleKey.self] = newValue }
+// Keep a short-lived copy of the old content while the native tab selection updates.
+@MainActor
+private final class DepartureSnapshot: ObservableObject {
+    weak var anchor: UIView?
+    private weak var overlay: UIView?
+
+    func remove() {
+        overlay?.layer.removeAllAnimations()
+        overlay?.removeFromSuperview()
+        overlay = nil
     }
+
+    func animate() {
+        remove()
+        guard let window = anchor?.window else { return }
+        let top = window.safeAreaInsets.top + 44
+        let bottom = window.safeAreaInsets.bottom + 70
+        let rect = CGRect(x: 0, y: top, width: window.bounds.width,
+                          height: max(0, window.bounds.height - top - bottom))
+        guard rect.height > 0,
+              let snapshot = window.resizableSnapshotView(from: rect, afterScreenUpdates: false, withCapInsets: .zero) else { return }
+        snapshot.frame = rect
+        snapshot.isUserInteractionEnabled = false
+        window.addSubview(snapshot)
+        overlay = snapshot
+        UIView.animate(withDuration: 0.07, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
+            snapshot.transform = CGAffineTransform(scaleX: 0.996, y: 0.996)
+        } completion: { _ in
+            snapshot.removeFromSuperview()
+        }
+    }
+}
+
+private struct SnapshotAnchor: UIViewRepresentable {
+    let snapshot: DepartureSnapshot
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        snapshot.anchor = view
+        return view
+    }
+    func updateUIView(_ uiView: UIView, context: Context) { snapshot.anchor = uiView }
 }
 
 struct LedgerTabs: View {
     @EnvironmentObject private var ledger: Ledger
     @State private var target: EditorTarget?
     @State private var selected = 1
-    @State private var departureScale: CGFloat = 1
-    @State private var transitionTask: Task<Void, Never>?
+    @StateObject private var snapshot = DepartureSnapshot()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private func selectTab(_ newValue: Int) {
-        transitionTask?.cancel()
-        guard newValue != selected else {
-            withAnimation(.easeOut(duration: 0.1)) { departureScale = 1 }
-            return
-        }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        if reduceMotion {
-            departureScale = 1
-            selected = newValue
-            return
-        }
-        withAnimation(.easeIn(duration: 0.07)) { departureScale = 0.996 }
-        transitionTask = Task { @MainActor in
-            do { try await Task.sleep(for: .milliseconds(70)) }
-            catch { return }
-            guard !Task.isCancelled else { return }
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                selected = newValue
-                departureScale = 1
-            }
-        }
-    }
 
     var body: some View {
         TabView(selection: Binding(get: { selected }, set: { newValue in
-            selectTab(newValue)
+            guard newValue != selected else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            if reduceMotion { snapshot.remove() } else { snapshot.animate() }
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { selected = newValue }
         })) {
-            Dashboard(target: $target, selected: selected).environment(\.departureScale, selected == 0 ? departureScale : 1).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
-            EntryEditor(entry: nil, embedded: true, tabSelection: selected).environment(\.departureScale, selected == 1 ? departureScale : 1).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
-            Insights(selected: selected).environment(\.departureScale, selected == 2 ? departureScale : 1).tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
+            Dashboard(target: $target, selected: selected).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
+            EntryEditor(entry: nil, embedded: true, tabSelection: selected).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
+            Insights(selected: selected).tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
         }
+        .background(SnapshotAnchor(snapshot: snapshot))
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .tint(accent)
         .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger).tint(accent) }
@@ -69,21 +82,27 @@ struct LedgerTabs: View {
 
 struct TabArrival: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.departureScale) private var departureScale
     let selected: Int
     let tab: Int
     var showsBackground = true
     @State private var scale: CGFloat = 1
+    @State private var arrivalTask: Task<Void, Never>?
 
     func body(content: Content) -> some View {
-        content.scaleEffect(scale * departureScale)
+        content.scaleEffect(scale)
             .background((showsBackground ? Color(uiColor: .systemGroupedBackground) : Color.clear).ignoresSafeArea())
             .onChange(of: selected) { _, newValue in
+                arrivalTask?.cancel()
                 guard newValue == tab, !reduceMotion else { scale = 1; return }
                 var transaction = Transaction(animation: nil)
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { scale = 0.996 }
-                withAnimation(.smooth(duration: 0.16, extraBounce: 0.04)) { scale = 1 }
+                arrivalTask = Task { @MainActor in
+                    do { try await Task.sleep(for: .milliseconds(70)) }
+                    catch { return }
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.smooth(duration: 0.14, extraBounce: 0.04)) { scale = 1 }
+                }
             }
     }
 }
