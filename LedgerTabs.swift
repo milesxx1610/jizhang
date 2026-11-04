@@ -16,9 +16,11 @@ struct LedgerTabs: View {
         TabView(selection: Binding(get: { selected }, set: { newValue in
             guard newValue != selected else { return }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            let transition = TabCrossfade.capture()
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
             withTransaction(transaction) { selected = newValue }
+            transition?.fadeOut()
         })) {
             Dashboard(target: $target, selected: selected).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
             EntryEditor(entry: nil, embedded: true, tabSelection: selected).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
@@ -31,6 +33,34 @@ struct LedgerTabs: View {
     }
 }
 
+// Experimental: fade a brief snapshot of the outgoing content above the new tab.
+// The bottom navigation remains live and is not included in the snapshot overlay.
+private enum TabCrossfade {
+    private static let overlayTag = 927413
+    static func capture() -> UIView? {
+        guard !UIAccessibility.isReduceMotionEnabled,
+              let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).flatMap(\.windows).first(where: { $0.isKeyWindow }) else { return nil }
+        window.viewWithTag(overlayTag)?.removeFromSuperview()
+        guard let snapshot = window.snapshotView(afterScreenUpdates: false) else { return nil }
+        let bottom = max(window.safeAreaInsets.bottom + 70, 104)
+        let overlay = UIView(frame: CGRect(x: 0, y: 0, width: window.bounds.width, height: max(0, window.bounds.height - bottom)))
+        overlay.tag = overlayTag
+        overlay.clipsToBounds = true
+        overlay.isUserInteractionEnabled = false
+        snapshot.frame = window.bounds
+        overlay.addSubview(snapshot)
+        window.addSubview(overlay)
+        return overlay
+    }
+}
+private extension UIView {
+    func fadeOut() {
+        DispatchQueue.main.async {
+            UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) { self.alpha = 0 } completion: { _ in self.removeFromSuperview() }
+        }
+    }
+}
+
 struct TabArrival: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let selected: Int
@@ -39,7 +69,7 @@ struct TabArrival: ViewModifier {
     @State private var scale: CGFloat = 1
 
     func body(content: Content) -> some View {
-        content.scaleEffect(scale)
+        content
             .background((showsBackground ? Color(uiColor: .systemGroupedBackground) : Color.clear).ignoresSafeArea())
             .onChange(of: selected) { _, newValue in
                 guard newValue == tab, !reduceMotion else { scale = 1; return }
