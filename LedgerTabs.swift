@@ -11,6 +11,13 @@ private func sum(_ entries: [Entry], income: Bool) -> Decimal { entries.filter {
 private final class RapidTabBarController: UITabBarController {
     var onVisible: ((UIWindow) -> Void)?
     var onHidden: (() -> Void)?
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow), name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide), name: UIResponder.keyboardWillHideNotification, object: nil)
+    }
+    @objc private func keyboardWillShow() { tabBar.isHidden = true }
+    @objc private func keyboardWillHide() { tabBar.isHidden = false }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         if let window = view.window { onVisible?(window) }
@@ -118,7 +125,7 @@ private struct NativeLedgerTabs: UIViewControllerRepresentable {
             let point = touch.location(in: bar)
             let bounds = bar.bounds
             // The current iPhone layout has three items; ignore the outer margin.
-            guard bar.window === window, bounds.width > 0,
+            guard !bar.isHidden, bar.window === window, bounds.width > 0,
                   bounds.insetBy(dx: bounds.width * 0.14, dy: 0).contains(point),
                   controller.viewControllers?.count == 3 else { return false }
             let visualIndex = min(2, max(0, Int((point.x - bounds.minX) / bounds.width * 3)))
