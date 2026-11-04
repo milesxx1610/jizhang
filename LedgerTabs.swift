@@ -8,21 +8,57 @@ private func moneyText(_ value: Decimal, currency: String = "CNY") -> String { (
 private func monthItems(_ entries: [Entry], _ date: Date) -> [Entry] { entries.filter { Calendar.current.isDate($0.date, equalTo: date, toGranularity: .month) }.sorted { $0.date > $1.date } }
 private func sum(_ entries: [Entry], income: Bool) -> Decimal { entries.filter { $0.income == income }.reduce(0) { $0 + ($1.cnyAmount ?? 0) } }
 
+private struct DepartureScaleKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 1
+}
+extension EnvironmentValues {
+    var departureScale: CGFloat {
+        get { self[DepartureScaleKey.self] }
+        set { self[DepartureScaleKey.self] = newValue }
+    }
+}
+
 struct LedgerTabs: View {
     @EnvironmentObject private var ledger: Ledger
     @State private var target: EditorTarget?
     @State private var selected = 1
-    var body: some View {
-        TabView(selection: Binding(get: { selected }, set: { newValue in
-            guard newValue != selected else { return }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    @State private var departureScale: CGFloat = 1
+    @State private var transitionTask: Task<Void, Never>?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private func selectTab(_ newValue: Int) {
+        transitionTask?.cancel()
+        guard newValue != selected else {
+            withAnimation(.easeOut(duration: 0.1)) { departureScale = 1 }
+            return
+        }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if reduceMotion {
+            departureScale = 1
+            selected = newValue
+            return
+        }
+        withAnimation(.easeIn(duration: 0.07)) { departureScale = 0.996 }
+        transitionTask = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(70)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
-            withTransaction(transaction) { selected = newValue }
+            withTransaction(transaction) {
+                selected = newValue
+                departureScale = 1
+            }
+        }
+    }
+
+    var body: some View {
+        TabView(selection: Binding(get: { selected }, set: { newValue in
+            selectTab(newValue)
         })) {
-            Dashboard(target: $target, selected: selected).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
-            EntryEditor(entry: nil, embedded: true, tabSelection: selected).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
-            Insights(selected: selected).tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
+            Dashboard(target: $target, selected: selected).environment(\.departureScale, selected == 0 ? departureScale : 1).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
+            EntryEditor(entry: nil, embedded: true, tabSelection: selected).environment(\.departureScale, selected == 1 ? departureScale : 1).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
+            Insights(selected: selected).environment(\.departureScale, selected == 2 ? departureScale : 1).tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
         }
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .tint(accent)
@@ -33,22 +69,21 @@ struct LedgerTabs: View {
 
 struct TabArrival: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.departureScale) private var departureScale
     let selected: Int
     let tab: Int
     var showsBackground = true
     @State private var scale: CGFloat = 1
 
     func body(content: Content) -> some View {
-        content.scaleEffect(scale)
+        content.scaleEffect(scale * departureScale)
             .background((showsBackground ? Color(uiColor: .systemGroupedBackground) : Color.clear).ignoresSafeArea())
-            .task(id: selected) {
-                guard selected == tab, !reduceMotion else { scale = 1; return }
-                scale = 1
-                withAnimation(.easeIn(duration: 0.06)) { scale = 0.998 }
-                do { try await Task.sleep(for: .milliseconds(60)) }
-                catch { return }
-                guard !Task.isCancelled else { return }
-                withAnimation(.smooth(duration: 0.14, extraBounce: 0.04)) { scale = 1 }
+            .onChange(of: selected) { _, newValue in
+                guard newValue == tab, !reduceMotion else { scale = 1; return }
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { scale = 0.996 }
+                withAnimation(.smooth(duration: 0.16, extraBounce: 0.04)) { scale = 1 }
             }
     }
 }
