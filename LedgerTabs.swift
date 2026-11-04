@@ -2,80 +2,22 @@ import SwiftUI
 import Charts
 import UniformTypeIdentifiers
 import UIKit
-import UIKit.UIGestureRecognizerSubclass
 
 private let accent = Color(red: 0.12, green: 0.52, blue: 0.44)
 private func moneyText(_ value: Decimal, currency: String = "CNY") -> String { (value as NSDecimalNumber).doubleValue.formatted(.currency(code: currency).precision(.fractionLength(2...3))) }
 private func monthItems(_ entries: [Entry], _ date: Date) -> [Entry] { entries.filter { Calendar.current.isDate($0.date, equalTo: date, toGranularity: .month) }.sorted { $0.date > $1.date } }
 private func sum(_ entries: [Entry], income: Bool) -> Decimal { entries.filter { $0.income == income }.reduce(0) { $0 + ($1.cnyAmount ?? 0) } }
 
-@MainActor private final class TabDiagnostics: ObservableObject {
-    @Published var events: [String] = []
-    private let formatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter
-    }()
-    func record(_ event: String) {
-        let time = formatter.string(from: Date())
-        events.append("\(time) \(event)")
-        if events.count > 100 { events.removeFirst(events.count - 100) }
-    }
-}
-
-private final class TabTouchProbe: UIGestureRecognizer {
-    var onTouch: ((CGPoint) -> Void)?
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        if let touch = touches.first, let view { onTouch?(touch.location(in: view)) }
-        state = .failed
-    }
-}
-
-private final class DiagnosticTabBarController: UITabBarController {
-    var onWindowTouch: ((CGPoint, UIWindow) -> Void)?
-    private var windowProbe: TabTouchProbe?
-
+private final class RapidTabBarController: UITabBarController {
+    var onVisible: ((UIWindow) -> Void)?
+    var onHidden: (() -> Void)?
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        guard let window = view.window else { return }
-        if windowProbe?.view === window { return }
-        if let probe = windowProbe { probe.view?.removeGestureRecognizer(probe) }
-        let probe = TabTouchProbe(target: nil, action: nil)
-        probe.cancelsTouchesInView = false
-        probe.delaysTouchesBegan = false
-        probe.delaysTouchesEnded = false
-        probe.onTouch = { [weak self, weak window] point in
-            guard let self, let window else { return }
-            self.onWindowTouch?(point, window)
-        }
-        window.addGestureRecognizer(probe)
-        windowProbe = probe
+        if let window = view.window { onVisible?(window) }
     }
-
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        if let probe = windowProbe { probe.view?.removeGestureRecognizer(probe) }
-        windowProbe = nil
-    }
-}
-
-private struct TabDiagnosticsPanel: View {
-    @ObservedObject var diagnostics: TabDiagnostics
-    @State private var expanded = false
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button(expanded ? "关闭诊断" : "诊断") { expanded.toggle() }
-                .buttonStyle(.borderedProminent)
-            if expanded {
-                VStack(alignment: .leading) {
-                    HStack {
-                        Button("复制记录") { UIPasteboard.general.string = diagnostics.events.joined(separator: "\n") }
-                        Button("清空") { diagnostics.events.removeAll() }
-                    }
-                    ScrollView { Text(diagnostics.events.joined(separator: "\n")).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                }.padding(8).frame(width: 300, height: 260).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            }
-        }.padding(.leading, 4)
+        onHidden?()
     }
 }
 
@@ -84,15 +26,11 @@ struct LedgerTabs: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var target: EditorTarget?
     @State private var selected = 1
-    @State private var diagnostics = TabDiagnostics()
 
     var body: some View {
-        NativeLedgerTabs(target: $target, selected: $selected, ledger: ledger, reduceMotion: reduceMotion, diagnostics: diagnostics)
+        NativeLedgerTabs(target: $target, selected: $selected, ledger: ledger, reduceMotion: reduceMotion)
             .ignoresSafeArea(.container, edges: .bottom)
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
-            .overlay(alignment: .leading) {
-                TabDiagnosticsPanel(diagnostics: diagnostics)
-            }
             .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger).tint(accent) }
             .alert("提示", isPresented: Binding(get: { ledger.error != nil }, set: { if !$0 { ledger.error = nil } })) {
                 Button("知道了") { ledger.error = nil }
@@ -105,7 +43,6 @@ private struct NativeLedgerTabs: UIViewControllerRepresentable {
     @Binding var selected: Int
     let ledger: Ledger
     let reduceMotion: Bool
-    let diagnostics: TabDiagnostics
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -116,21 +53,13 @@ private struct NativeLedgerTabs: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> UITabBarController {
-        let controller = DiagnosticTabBarController()
+        let controller = RapidTabBarController()
         controller.delegate = context.coordinator
-        controller.onWindowTouch = { [weak controller] point, window in
-            guard let controller, point.y >= window.bounds.height - 200 else { return }
-            let barPoint = controller.tabBar.convert(point, from: window)
-            let inBar = controller.tabBar.bounds.contains(barPoint)
-            diagnostics.record("窗口底部触摸 x=\(Int(point.x)) y=\(Int(point.y)) 在导航区域=\(inBar) 系统页=\(controller.selectedIndex)")
+        controller.onVisible = { [weak coordinator = context.coordinator, weak controller] window in
+            guard let coordinator, let controller else { return }
+            coordinator.installRapidTap(on: window, controller: controller)
         }
-        let probe = TabTouchProbe(target: nil, action: nil)
-        probe.cancelsTouchesInView = false
-        probe.onTouch = { [weak controller] point in
-            guard let controller else { return }
-            diagnostics.record("触摸导航 x=\(Int(point.x)) 当前系统页=\(controller.selectedIndex)")
-        }
-        controller.tabBar.addGestureRecognizer(probe)
+        controller.onHidden = { [weak coordinator = context.coordinator] in coordinator?.removeRapidTap() }
         controller.view.tintColor = UIColor(red: 0.12, green: 0.52, blue: 0.44, alpha: 1)
         let icons = ["list.bullet.rectangle", "plus.circle.fill", "chart.bar.xaxis"]
         let labels = ["明细", "记账", "统计"]
@@ -150,19 +79,67 @@ private struct NativeLedgerTabs: UIViewControllerRepresentable {
         for (host, page) in zip(controller.viewControllers ?? [], pages()) {
             (host as? UIHostingController<AnyView>)?.rootView = page
         }
-        if controller.selectedIndex != selected {
-            let message = "状态回写 系统=\(controller.selectedIndex) SwiftUI=\(selected)"
-            DispatchQueue.main.async { diagnostics.record(message) }
-            controller.selectedIndex = selected
-        }
+        if controller.selectedIndex != selected { controller.selectedIndex = selected }
     }
 
-    final class Coordinator: NSObject, UITabBarControllerDelegate {
+    final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate {
         var parent: NativeLedgerTabs
         private var activeTransition: LedgerTabTransition?
+        private weak var controller: UITabBarController?
+        private var rapidTap: UITapGestureRecognizer?
+        private var rapidTarget: Int?
         init(_ parent: NativeLedgerTabs) { self.parent = parent }
+
+        func installRapidTap(on window: UIWindow, controller: UITabBarController) {
+            self.controller = controller
+            if rapidTap?.view === window { return }
+            removeRapidTap()
+            let gesture = UITapGestureRecognizer(target: self, action: #selector(handleRapidTap(_:)))
+            gesture.cancelsTouchesInView = false
+            gesture.delaysTouchesBegan = false
+            gesture.delaysTouchesEnded = false
+            gesture.delegate = self
+            window.addGestureRecognizer(gesture)
+            rapidTap = gesture
+        }
+
+        func removeRapidTap() {
+            if let rapidTap { rapidTap.view?.removeGestureRecognizer(rapidTap) }
+            rapidTap = nil
+            rapidTarget = nil
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            rapidTarget = nil
+            guard gestureRecognizer === rapidTap, activeTransition?.isRunning == true,
+                  let controller, let window = controller.view.window,
+                  controller.presentedViewController == nil else { return false }
+            let bar = controller.tabBar
+            let point = touch.location(in: bar)
+            let bounds = bar.bounds
+            // The current iPhone layout has three items; ignore the outer margin.
+            guard bar.window === window, bounds.width > 0,
+                  bounds.insetBy(dx: bounds.width * 0.14, dy: 0).contains(point),
+                  controller.viewControllers?.count == 3 else { return false }
+            let visualIndex = min(2, max(0, Int((point.x - bounds.minX) / bounds.width * 3)))
+            rapidTarget = bar.effectiveUserInterfaceLayoutDirection == .rightToLeft ? 2 - visualIndex : visualIndex
+            return true
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+
+        @objc private func handleRapidTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended, let index = rapidTarget, let controller else { return }
+            rapidTarget = nil
+            guard controller.selectedIndex != index else { return }
+            let interruptedView = activeTransition?.finishImmediately()
+            activeTransition = nil
+            controller.selectedIndex = index
+            interruptedView?.transform = .identity
+            parent.selected = index
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
         func tabBarController(_ tabBarController: UITabBarController, shouldSelect viewController: UIViewController) -> Bool {
-            parent.diagnostics.record("请求选择 目标=\(viewController.tabBarItem.tag) 系统=\(tabBarController.selectedIndex) SwiftUI=\(parent.selected)")
             let interruptedView = activeTransition?.finishImmediately()
             activeTransition = nil
             if viewController === tabBarController.selectedViewController, let interruptedView {
@@ -173,7 +150,6 @@ private struct NativeLedgerTabs: UIViewControllerRepresentable {
             return true
         }
         func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
-            parent.diagnostics.record("选择完成 目标=\(viewController.tabBarItem.tag) 系统=\(tabBarController.selectedIndex) SwiftUI=\(parent.selected)")
             guard let index = tabBarController.viewControllers?.firstIndex(of: viewController), index != parent.selected else { return }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             parent.selected = index
@@ -181,8 +157,6 @@ private struct NativeLedgerTabs: UIViewControllerRepresentable {
         func tabBarController(_ tabBarController: UITabBarController, animationControllerForTransitionFrom fromVC: UIViewController, to toVC: UIViewController) -> UIViewControllerAnimatedTransitioning? {
             guard !parent.reduceMotion else { return nil }
             let transition = LedgerTabTransition()
-            parent.diagnostics.record("动画开始 \(fromVC.tabBarItem.tag)→\(toVC.tabBarItem.tag)")
-            transition.onFinish = { [weak self] cancelled in self?.parent.diagnostics.record("动画结束 取消=\(cancelled)") }
             activeTransition = transition
             return transition
         }
@@ -190,13 +164,13 @@ private struct NativeLedgerTabs: UIViewControllerRepresentable {
 }
 
 private final class LedgerTabTransition: NSObject, UIViewControllerAnimatedTransitioning {
-    var onFinish: ((Bool) -> Void)?
     private var context: UIViewControllerContextTransitioning?
     private var fromView: UIView?
     private var toView: UIView?
     private var fromTransform = CGAffineTransform.identity
     private var toTransform = CGAffineTransform.identity
     private var finished = false
+    var isRunning: Bool { context != nil && !finished }
 
     func transitionDuration(using transitionContext: UIViewControllerContextTransitioning?) -> TimeInterval { 0.23 }
 
@@ -221,7 +195,6 @@ private final class LedgerTabTransition: NSObject, UIViewControllerAnimatedTrans
         if cancelled { toView?.removeFromSuperview() }
         else if let toView { context.containerView.bringSubviewToFront(toView) }
         context.completeTransition(!cancelled)
-        onFinish?(cancelled)
         self.context = nil
         fromView = nil
         toView = nil
