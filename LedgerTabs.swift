@@ -8,103 +8,117 @@ private func moneyText(_ value: Decimal, currency: String = "CNY") -> String { (
 private func monthItems(_ entries: [Entry], _ date: Date) -> [Entry] { entries.filter { Calendar.current.isDate($0.date, equalTo: date, toGranularity: .month) }.sorted { $0.date > $1.date } }
 private func sum(_ entries: [Entry], income: Bool) -> Decimal { entries.filter { $0.income == income }.reduce(0) { $0 + ($1.cnyAmount ?? 0) } }
 
-// Keep a short-lived copy of the old content while the native tab selection updates.
-@MainActor
-private final class DepartureSnapshot: ObservableObject {
-    weak var anchor: UIView?
-    private weak var overlay: UIView?
-
-    func remove() {
-        overlay?.layer.removeAllAnimations()
-        overlay?.removeFromSuperview()
-        overlay = nil
-    }
-
-    func animate() {
-        remove()
-        guard let window = anchor?.window else { return }
-        let top = window.safeAreaInsets.top + 44
-        let bottom = window.safeAreaInsets.bottom + 70
-        let rect = CGRect(x: 0, y: top, width: window.bounds.width,
-                          height: max(0, window.bounds.height - top - bottom))
-        guard rect.height > 0,
-              let snapshot = window.resizableSnapshotView(from: rect, afterScreenUpdates: false, withCapInsets: .zero) else { return }
-        snapshot.frame = rect
-        snapshot.isUserInteractionEnabled = false
-        window.addSubview(snapshot)
-        overlay = snapshot
-        UIView.animate(withDuration: 0.07, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
-            snapshot.transform = CGAffineTransform(scaleX: 0.996, y: 0.996)
-        } completion: { _ in
-            snapshot.removeFromSuperview()
-        }
-    }
-}
-
-private struct SnapshotAnchor: UIViewRepresentable {
-    let snapshot: DepartureSnapshot
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.isUserInteractionEnabled = false
-        snapshot.anchor = view
-        return view
-    }
-    func updateUIView(_ uiView: UIView, context: Context) { snapshot.anchor = uiView }
-}
-
 struct LedgerTabs: View {
     @EnvironmentObject private var ledger: Ledger
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var target: EditorTarget?
     @State private var selected = 1
-    @StateObject private var snapshot = DepartureSnapshot()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TabView(selection: Binding(get: { selected }, set: { newValue in
-            guard newValue != selected else { return }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            if reduceMotion { snapshot.remove() } else { snapshot.animate() }
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { selected = newValue }
-        })) {
-            Dashboard(target: $target, selected: selected).tabItem { Image(systemName: "list.bullet.rectangle").imageScale(.large).accessibilityLabel("明细") }.tag(0)
-            EntryEditor(entry: nil, embedded: true, tabSelection: selected).tabItem { Image(systemName: "plus.circle.fill").imageScale(.large).accessibilityLabel("记账") }.tag(1)
-            Insights(selected: selected).tabItem { Image(systemName: "chart.bar.xaxis").imageScale(.large).accessibilityLabel("统计") }.tag(2)
-        }
-        .background(SnapshotAnchor(snapshot: snapshot))
-        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
-        .tint(accent)
-        .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger).tint(accent) }
-        .alert("提示", isPresented: Binding(get: { ledger.error != nil }, set: { if !$0 { ledger.error = nil } })) { Button("知道了") { ledger.error = nil } } message: { Text(ledger.error ?? "") }
+        NativeLedgerTabs(target: $target, selected: $selected, ledger: ledger, reduceMotion: reduceMotion)
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger).tint(accent) }
+            .alert("提示", isPresented: Binding(get: { ledger.error != nil }, set: { if !$0 { ledger.error = nil } })) {
+                Button("知道了") { ledger.error = nil }
+            } message: { Text(ledger.error ?? "") }
     }
 }
 
+private struct NativeLedgerTabs: UIViewControllerRepresentable {
+    @Binding var target: EditorTarget?
+    @Binding var selected: Int
+    let ledger: Ledger
+    let reduceMotion: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    private func pages() -> [AnyView] {
+        [AnyView(Dashboard(target: $target, selected: selected).environmentObject(ledger).tint(accent)),
+         AnyView(EntryEditor(entry: nil, embedded: true, tabSelection: selected).environmentObject(ledger).tint(accent)),
+         AnyView(Insights(selected: selected).environmentObject(ledger).tint(accent))]
+    }
+
+    func makeUIViewController(context: Context) -> UITabBarController {
+        let controller = UITabBarController()
+        controller.delegate = context.coordinator
+        controller.view.tintColor = UIColor(red: 0.12, green: 0.52, blue: 0.44, alpha: 1)
+        let icons = ["list.bullet.rectangle", "plus.circle.fill", "chart.bar.xaxis"]
+        let labels = ["明细", "记账", "统计"]
+        let hosts = pages().enumerated().map { index, page in
+            let host = UIHostingController(rootView: page)
+            host.tabBarItem = UITabBarItem(title: nil, image: UIImage(systemName: icons[index]), tag: index)
+            host.tabBarItem.accessibilityLabel = labels[index]
+            return host
+        }
+        controller.setViewControllers(hosts, animated: false)
+        controller.selectedIndex = selected
+        return controller
+    }
+
+    func updateUIViewController(_ controller: UITabBarController, context: Context) {
+        context.coordinator.parent = self
+        for (host, page) in zip(controller.viewControllers ?? [], pages()) {
+            (host as? UIHostingController<AnyView>)?.rootView = page
+        }
+        if controller.selectedIndex != selected { controller.selectedIndex = selected }
+    }
+
+    final class Coordinator: NSObject, UITabBarControllerDelegate {
+        var parent: NativeLedgerTabs
+        init(_ parent: NativeLedgerTabs) { self.parent = parent }
+        func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
+            guard let index = tabBarController.viewControllers?.firstIndex(of: viewController), index != parent.selected else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            parent.selected = index
+        }
+        func tabBarController(_ tabBarController: UITabBarController, animationControllerForTransitionFrom fromVC: UIViewController, to toVC: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+            parent.reduceMotion ? nil : LedgerTabTransition()
+        }
+    }
+}
+
+private final class LedgerTabTransition: NSObject, UIViewControllerAnimatedTransitioning {
+    func transitionDuration(using transitionContext: UIViewControllerContextTransitioning?) -> TimeInterval { 0.21 }
+    func animateTransition(using context: UIViewControllerContextTransitioning) {
+        guard let from = context.view(forKey: .from), let to = context.view(forKey: .to),
+              let toController = context.viewController(forKey: .to) else {
+            context.completeTransition(false)
+            return
+        }
+        let container = context.containerView
+        let originalFromTransform = from.transform
+        let originalToTransform = to.transform
+        to.frame = context.finalFrame(for: toController)
+        to.transform = CGAffineTransform(scaleX: 0.996, y: 0.996)
+        container.insertSubview(to, belowSubview: from)
+        UIView.animate(withDuration: 0.07, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
+            from.transform = CGAffineTransform(scaleX: 0.996, y: 0.996)
+        } completion: { _ in
+            from.transform = originalFromTransform
+            if context.transitionWasCancelled {
+                to.transform = originalToTransform
+                to.removeFromSuperview()
+                context.completeTransition(false)
+                return
+            }
+            container.bringSubviewToFront(to)
+            UIView.animate(withDuration: 0.14, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: [.beginFromCurrentState, .curveEaseOut]) {
+                to.transform = originalToTransform
+            } completion: { _ in
+                let cancelled = context.transitionWasCancelled
+                if cancelled { to.removeFromSuperview() }
+                context.completeTransition(!cancelled)
+            }
+        }
+    }
+}
+
+// The UIKit transition animates complete pages, including the save area.
 struct TabArrival: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let selected: Int
     let tab: Int
     var showsBackground = true
-    @State private var scale: CGFloat = 1
-    @State private var arrivalTask: Task<Void, Never>?
-
-    func body(content: Content) -> some View {
-        content.scaleEffect(scale)
-            .background((showsBackground ? Color(uiColor: .systemGroupedBackground) : Color.clear).ignoresSafeArea())
-            .onChange(of: selected) { _, newValue in
-                arrivalTask?.cancel()
-                guard newValue == tab, !reduceMotion else { scale = 1; return }
-                var transaction = Transaction(animation: nil)
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { scale = 0.996 }
-                arrivalTask = Task { @MainActor in
-                    do { try await Task.sleep(for: .milliseconds(70)) }
-                    catch { return }
-                    guard !Task.isCancelled else { return }
-                    withAnimation(.smooth(duration: 0.14, extraBounce: 0.04)) { scale = 1 }
-                }
-            }
-    }
+    func body(content: Content) -> some View { content }
 }
 
 struct SoftTopScrollEdge: ViewModifier {
