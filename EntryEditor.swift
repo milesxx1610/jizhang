@@ -128,7 +128,7 @@ struct EntryEditor: View {
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    HStack { VStack(alignment: .leading, spacing: 4) { Text("记账").font(.largeTitle.bold()); Text("让每一份收支都有迹可循").font(.subheadline).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "sparkles").foregroundStyle(Color.accentColor) }
+                    Text("让每一份收支都有迹可循").font(.subheadline).foregroundStyle(.secondary)
                     typeToggle
                         .onChange(of: income) { _, _ in category = ""; detail = "" }
                     VStack(alignment: .leading, spacing: 8) {
@@ -227,8 +227,8 @@ struct EntryEditor: View {
                             }
                         }
                 }
-                .navigationTitle(embedded ? "" : "编辑账目")
-                .navigationBarTitleDisplayMode(.inline)
+                .navigationTitle(embedded ? "记账" : "编辑账目")
+                .navigationBarTitleDisplayMode(embedded ? .large : .inline)
                 .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
                 .task(id: rateKey) { await loadPreviewRate() }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
