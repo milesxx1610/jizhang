@@ -44,11 +44,11 @@ struct TabArrival: ViewModifier {
             .task(id: selected) {
                 guard selected == tab, !reduceMotion else { scale = 1; return }
                 scale = 1
-                withAnimation(.easeIn(duration: 0.07)) { scale = 0.995 }
-                do { try await Task.sleep(for: .milliseconds(70)) }
+                withAnimation(.easeIn(duration: 0.06)) { scale = 0.998 }
+                do { try await Task.sleep(for: .milliseconds(60)) }
                 catch { return }
                 guard !Task.isCancelled else { return }
-                withAnimation(.smooth(duration: 0.17, extraBounce: 0.12)) { scale = 1 }
+                withAnimation(.smooth(duration: 0.14, extraBounce: 0.04)) { scale = 1 }
             }
     }
 }

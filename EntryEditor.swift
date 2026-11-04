@@ -1,5 +1,52 @@
 import SwiftUI
 
+private struct IncomeExpenseToggle: View {
+    @Binding var income: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var dragOffset: CGFloat = 0
+    private let selectionColor = Color(red: 0.12, green: 0.52, blue: 0.44)
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = max((geometry.size.width - 6) / 2, 0)
+            let offset = min(max((income ? width : 0) + dragOffset, 0), width)
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color(uiColor: .tertiarySystemFill))
+                Capsule().fill(selectionColor).frame(width: width, height: 44).offset(x: 3 + offset)
+                HStack(spacing: 0) {
+                    ForEach([false, true], id: \.self) { value in
+                        Button {
+                            withAnimation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.9)) { income = value }
+                        } label: {
+                            Text(value ? "收入" : "支出").font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity).frame(height: 44)
+                                .foregroundStyle(income == value ? Color.white : Color.secondary)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(income == value ? .isSelected : [])
+                    }
+                }.padding(3)
+            }
+            .contentShape(Rectangle())
+            .highPriorityGesture(DragGesture(minimumDistance: 1)
+                .updating($dragOffset) { value, state, transaction in
+                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                    state = value.translation.width
+                }
+                .onEnded { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                    let finalOffset = min(max((income ? width : 0) + value.translation.width, 0), width)
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.9)) {
+                        income = finalOffset > width / 2
+                    }
+                })
+        }.frame(height: 50).frame(maxWidth: 310).frame(maxWidth: .infinity)
+    }
+}
+
 struct CategoryItem: Codable, Identifiable, Equatable {
     var name: String
     var emoji: String
@@ -66,7 +113,6 @@ struct EntryEditor: View {
     @State private var optionSortKind = ""
     @State private var optionSortItems: [String] = []
     @Namespace private var typeSelection
-    @State private var typeDrag: CGFloat = 0
     @State private var sortedItems: [CategoryItem] = []
     @State private var previewRate: Decimal?
     @State private var previewKey = ""
@@ -264,38 +310,7 @@ struct EntryEditor: View {
         }.frame(width: 200).padding(.bottom, 8)
     }
     private var typeToggle: some View {
-        GeometryReader { geometry in
-            let width = (geometry.size.width - 6) / 2
-            let offset = min(max((income ? width : 0) + typeDrag, 0), width)
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color(uiColor: .tertiarySystemFill))
-                Capsule().fill(selectionColor).frame(width: width, height: 44).offset(x: 3 + offset)
-                HStack(spacing: 0) {
-                    ForEach([false, true], id: \.self) { value in
-                        Button { withAnimation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.9)) { income = value } } label: {
-                            Text(value ? "收入" : "支出").font(.subheadline.weight(.semibold))
-                                .frame(maxWidth: .infinity).frame(height: 44)
-                                .foregroundStyle(income == value ? Color.white : Color.secondary)
-                                .contentShape(Rectangle().inset(by: -8))
-                        }.buttonStyle(.plain).accessibilityAddTraits(income == value ? .isSelected : [])
-                    }
-                }.padding(3)
-            }
-            .contentShape(Rectangle())
-            .highPriorityGesture(DragGesture(minimumDistance: 3)
-                .onChanged { value in
-                    var transaction = Transaction(animation: nil)
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) { typeDrag = value.translation.width }
-                }
-                .onEnded { value in
-                    let target = min(max((income ? width : 0) + value.translation.width, 0), width) > width / 2
-                    withAnimation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.9)) {
-                        income = target
-                        typeDrag = 0
-                    }
-                })
-        }.frame(height: 50).frame(maxWidth: 310).frame(maxWidth: .infinity)
+        IncomeExpenseToggle(income: $income)
     }
     private var categoryGrid: some View {
         ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 10) { ForEach(categories) { item in categoryButton(item) } }.padding(.horizontal, 20) }.padding(.horizontal, -20)
