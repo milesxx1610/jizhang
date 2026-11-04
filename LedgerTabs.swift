@@ -16,6 +16,7 @@ struct LedgerTabs: View {
 
     var body: some View {
         NativeLedgerTabs(target: $target, selected: $selected, ledger: ledger, reduceMotion: reduceMotion)
+            .ignoresSafeArea(.container, edges: .bottom)
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger).tint(accent) }
             .alert("提示", isPresented: Binding(get: { ledger.error != nil }, set: { if !$0 { ledger.error = nil } })) {
@@ -65,20 +66,68 @@ private struct NativeLedgerTabs: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, UITabBarControllerDelegate {
         var parent: NativeLedgerTabs
+        private var activeTransition: LedgerTabTransition?
         init(_ parent: NativeLedgerTabs) { self.parent = parent }
+        func tabBarController(_ tabBarController: UITabBarController, shouldSelect viewController: UIViewController) -> Bool {
+            let interruptedView = activeTransition?.finishImmediately()
+            activeTransition = nil
+            if viewController === tabBarController.selectedViewController, let interruptedView {
+                UIView.animate(withDuration: 0.16, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+                    interruptedView.transform = .identity
+                }
+            }
+            return true
+        }
         func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
             guard let index = tabBarController.viewControllers?.firstIndex(of: viewController), index != parent.selected else { return }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             parent.selected = index
         }
         func tabBarController(_ tabBarController: UITabBarController, animationControllerForTransitionFrom fromVC: UIViewController, to toVC: UIViewController) -> UIViewControllerAnimatedTransitioning? {
-            parent.reduceMotion ? nil : LedgerTabTransition()
+            guard !parent.reduceMotion else { return nil }
+            let transition = LedgerTabTransition()
+            activeTransition = transition
+            return transition
         }
     }
 }
 
 private final class LedgerTabTransition: NSObject, UIViewControllerAnimatedTransitioning {
-    func transitionDuration(using transitionContext: UIViewControllerContextTransitioning?) -> TimeInterval { 0.21 }
+    private var context: UIViewControllerContextTransitioning?
+    private var fromView: UIView?
+    private var toView: UIView?
+    private var fromTransform = CGAffineTransform.identity
+    private var toTransform = CGAffineTransform.identity
+    private var finished = false
+
+    func transitionDuration(using transitionContext: UIViewControllerContextTransitioning?) -> TimeInterval { 0.23 }
+
+    @discardableResult func finishImmediately() -> UIView? {
+        guard !finished, let context, let toView else { return nil }
+        let isVisible = context.containerView.subviews.last === toView
+        let visibleTransform = isVisible ? toView.layer.presentation()?.affineTransform() : nil
+        let cancelled = context.transitionWasCancelled
+        finish(cancelled: cancelled)
+        guard !cancelled, let visibleTransform else { return nil }
+        toView.transform = visibleTransform
+        return toView
+    }
+
+    private func finish(cancelled: Bool) {
+        guard !finished, let context else { return }
+        finished = true
+        fromView?.layer.removeAllAnimations()
+        toView?.layer.removeAllAnimations()
+        fromView?.transform = fromTransform
+        toView?.transform = toTransform
+        if cancelled { toView?.removeFromSuperview() }
+        else if let toView { context.containerView.bringSubviewToFront(toView) }
+        context.completeTransition(!cancelled)
+        self.context = nil
+        fromView = nil
+        toView = nil
+    }
+
     func animateTransition(using context: UIViewControllerContextTransitioning) {
         guard let from = context.view(forKey: .from), let to = context.view(forKey: .to),
               let toController = context.viewController(forKey: .to) else {
@@ -86,28 +135,30 @@ private final class LedgerTabTransition: NSObject, UIViewControllerAnimatedTrans
             return
         }
         let container = context.containerView
-        let originalFromTransform = from.transform
         let originalToTransform = to.transform
+        self.context = context
+        fromView = from
+        toView = to
+        // An interrupted incoming page may already be partially scaled. Restore
+        // it when it leaves so it is ready the next time the tab is shown.
+        fromTransform = .identity
+        toTransform = originalToTransform
         to.frame = context.finalFrame(for: toController)
         to.transform = CGAffineTransform(scaleX: 0.996, y: 0.996)
         container.insertSubview(to, belowSubview: from)
-        UIView.animate(withDuration: 0.07, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
+        UIView.animate(withDuration: 0.07, delay: 0, options: [.curveEaseIn, .beginFromCurrentState, .allowUserInteraction]) {
             from.transform = CGAffineTransform(scaleX: 0.996, y: 0.996)
         } completion: { _ in
-            from.transform = originalFromTransform
+            guard !self.finished else { return }
             if context.transitionWasCancelled {
-                to.transform = originalToTransform
-                to.removeFromSuperview()
-                context.completeTransition(false)
+                self.finish(cancelled: true)
                 return
             }
             container.bringSubviewToFront(to)
-            UIView.animate(withDuration: 0.14, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: [.beginFromCurrentState, .curveEaseOut]) {
+            UIView.animate(withDuration: 0.16, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: [.beginFromCurrentState, .curveEaseOut, .allowUserInteraction]) {
                 to.transform = originalToTransform
             } completion: { _ in
-                let cancelled = context.transitionWasCancelled
-                if cancelled { to.removeFromSuperview() }
-                context.completeTransition(!cancelled)
+                self.finish(cancelled: context.transitionWasCancelled)
             }
         }
     }
