@@ -51,6 +51,13 @@ struct TabArrival: ViewModifier {
     }
 }
 
+private struct SoftTopScrollEdge: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) { content.scrollEdgeEffectStyle(.soft, for: .top) }
+        else { content }
+    }
+}
+
 private struct SearchPullOffsetKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
@@ -121,6 +128,7 @@ private struct Dashboard: View {
                     })
                     .modifier(TabArrival(selected: selected, tab: 0, showsBackground: false))
             }
+            .modifier(SoftTopScrollEdge())
             .scrollBounceBehavior(.always, axes: .vertical)
             .scrollDismissesKeyboard(.interactively)
             .coordinateSpace(name: "detail-scroll")
@@ -240,8 +248,9 @@ private struct Insights: View {
                     }.padding(20).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22))
                     Text("按账目分类汇总，仅统计所选月份的支出。 ").font(.footnote).foregroundStyle(.secondary)
                 }.padding(20)
-            }.background(Color(uiColor: .systemGroupedBackground))
-                .modifier(TabArrival(selected: selected, tab: 2))
+                    .modifier(TabArrival(selected: selected, tab: 2, showsBackground: false))
+            }.modifier(SoftTopScrollEdge())
+                .background(Color(uiColor: .systemGroupedBackground))
                 .navigationTitle("统计").navigationBarTitleDisplayMode(.large)
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showingSettings = true } label: { Image(systemName: "gearshape") }.accessibilityLabel("设置") } }
                 .sheet(isPresented: $showingSettings) { Preferences() }
