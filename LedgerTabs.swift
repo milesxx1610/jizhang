@@ -11,9 +11,12 @@ private func sum(_ entries: [Entry], income: Bool) -> Decimal { entries.filter {
 
 @MainActor private final class TabDiagnostics: ObservableObject {
     @Published var events: [String] = []
-    func record(_ event: String) {
+    private let formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss.SSS"
+        return formatter
+    }()
+    func record(_ event: String) {
         let time = formatter.string(from: Date())
         events.append("\(time) \(event)")
         if events.count > 100 { events.removeFirst(events.count - 100) }
@@ -25,6 +28,34 @@ private final class TabTouchProbe: UIGestureRecognizer {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         if let touch = touches.first, let view { onTouch?(touch.location(in: view)) }
         state = .failed
+    }
+}
+
+private final class DiagnosticTabBarController: UITabBarController {
+    var onWindowTouch: ((CGPoint, UIWindow) -> Void)?
+    private var windowProbe: TabTouchProbe?
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard let window = view.window else { return }
+        if windowProbe?.view === window { return }
+        if let probe = windowProbe { probe.view?.removeGestureRecognizer(probe) }
+        let probe = TabTouchProbe(target: nil, action: nil)
+        probe.cancelsTouchesInView = false
+        probe.delaysTouchesBegan = false
+        probe.delaysTouchesEnded = false
+        probe.onTouch = { [weak self, weak window] point in
+            guard let self, let window else { return }
+            self.onWindowTouch?(point, window)
+        }
+        window.addGestureRecognizer(probe)
+        windowProbe = probe
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if let probe = windowProbe { probe.view?.removeGestureRecognizer(probe) }
+        windowProbe = nil
     }
 }
 
@@ -85,8 +116,14 @@ private struct NativeLedgerTabs: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> UITabBarController {
-        let controller = UITabBarController()
+        let controller = DiagnosticTabBarController()
         controller.delegate = context.coordinator
+        controller.onWindowTouch = { [weak controller] point, window in
+            guard let controller, point.y >= window.bounds.height - 200 else { return }
+            let barPoint = controller.tabBar.convert(point, from: window)
+            let inBar = controller.tabBar.bounds.contains(barPoint)
+            diagnostics.record("窗口底部触摸 x=\(Int(point.x)) y=\(Int(point.y)) 在导航区域=\(inBar) 系统页=\(controller.selectedIndex)")
+        }
         let probe = TabTouchProbe(target: nil, action: nil)
         probe.cancelsTouchesInView = false
         probe.onTouch = { [weak controller] point in
