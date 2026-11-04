@@ -60,14 +60,13 @@ struct EntryEditor: View {
     @State private var showCurrency = false
     @State private var viewportBottom: CGFloat = 0
     @State private var optionsBottom: CGFloat = 0
-    @State private var keyboardVisible = false
     @State private var showOptionSort = false
     @State private var showCustomOption = false
     @State private var customOptionKind = ""
     @State private var optionSortKind = ""
     @State private var optionSortItems: [String] = []
     @Namespace private var typeSelection
-    @GestureState private var typeDrag: CGFloat = 0
+    @State private var typeDrag: CGFloat = 0
     @State private var sortedItems: [CategoryItem] = []
     @State private var previewRate: Decimal?
     @State private var previewKey = ""
@@ -188,6 +187,7 @@ struct EntryEditor: View {
                     }
                     platformFields
                 }.padding(20).padding(.bottom, 24)
+                    .modifier(TabArrival(selected: tabSelection ?? -1, tab: 1, showsBackground: false))
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: currency != "CNY")
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.32), value: category.isEmpty)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.32), value: category)
@@ -210,7 +210,7 @@ struct EntryEditor: View {
                     }
                 }
                 .background(Color(uiColor: .systemGroupedBackground))
-                .modifier(TabArrival(selected: tabSelection ?? -1, tab: 1))
+                .modifier(SoftTopScrollEdge())
                 .scrollDismissesKeyboard(.interactively)
                 .onTapGesture { dismissKeyboard() }
                 .sensoryFeedback(.selection, trigger: amount)
@@ -220,19 +220,12 @@ struct EntryEditor: View {
                 .safeAreaInset(edge: .bottom) {
                     Button { Task { await save() } } label: { Text(saving ? "正在获取汇率…" : "保存").font(.headline).frame(maxWidth: .infinity).frame(height: 68).foregroundStyle(Color(uiColor: .systemBackground)).background(Color(uiColor: .label), in: Capsule()) }.disabled(saving)
                         .buttonStyle(.plain).padding(.horizontal, 20).padding(.vertical, 8)
-                        .frame(maxWidth: .infinity).background(alignment: .top) {
-                            if !keyboardVisible {
-                                UnevenRoundedRectangle(topLeadingRadius: 10, topTrailingRadius: 10)
-                                    .fill(.regularMaterial).frame(height: 220)
-                            }
-                        }
+                        .frame(maxWidth: .infinity)
                 }
                 .navigationTitle(embedded ? "记账" : "编辑账目")
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
                 .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
                 .task(id: rateKey) { await loadPreviewRate() }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
                 .sheet(isPresented: $showSort) { sortSheet }
                 .sheet(isPresented: $showOptionSort) { optionSortSheet }
                 .sheet(isPresented: $showCustomOption) { customOptionSheet }
@@ -289,11 +282,18 @@ struct EntryEditor: View {
                 }.padding(3)
             }
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 10)
-                .updating($typeDrag) { value, state, transaction in state = value.translation.width; transaction.animation = nil }
+            .highPriorityGesture(DragGesture(minimumDistance: 3)
+                .onChanged { value in
+                    var transaction = Transaction(animation: nil)
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) { typeDrag = value.translation.width }
+                }
                 .onEnded { value in
                     let target = min(max((income ? width : 0) + value.translation.width, 0), width) > width / 2
-                    withAnimation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.9)) { income = target }
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.9)) {
+                        income = target
+                        typeDrag = 0
+                    }
                 })
         }.frame(height: 50).frame(maxWidth: 310).frame(maxWidth: .infinity)
     }
@@ -588,4 +588,3 @@ struct EntryEditor: View {
         return orderedOptions((defaults + savedOptions("detail").filter { !defaults.contains($0) && !(category == "餐饮" && $0 == "外卖") }).filter { !savedOptions("detailHidden").contains($0) }, kind: "detail")
     }
 }
-

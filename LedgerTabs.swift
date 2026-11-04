@@ -41,17 +41,19 @@ struct TabArrival: ViewModifier {
     func body(content: Content) -> some View {
         content.scaleEffect(scale)
             .background((showsBackground ? Color(uiColor: .systemGroupedBackground) : Color.clear).ignoresSafeArea())
-            .onChange(of: selected) { _, newValue in
-                guard newValue == tab, !reduceMotion else { scale = 1; return }
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { scale = 0.995 }
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) { scale = 1 }
+            .task(id: selected) {
+                guard selected == tab, !reduceMotion else { scale = 1; return }
+                scale = 1
+                withAnimation(.easeIn(duration: 0.07)) { scale = 0.995 }
+                do { try await Task.sleep(for: .milliseconds(70)) }
+                catch { return }
+                guard !Task.isCancelled else { return }
+                withAnimation(.smooth(duration: 0.17, extraBounce: 0.12)) { scale = 1 }
             }
     }
 }
 
-private struct SoftTopScrollEdge: ViewModifier {
+struct SoftTopScrollEdge: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 26.0, *) { content.scrollEdgeEffectStyle(.soft, for: .top) }
         else { content }
@@ -320,5 +322,4 @@ private struct LedgerDocument: FileDocument {
     init(configuration: ReadConfiguration) throws { data = configuration.file.regularFileContents ?? Data() }
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
 }
-
 
