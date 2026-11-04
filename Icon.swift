@@ -7,8 +7,14 @@ func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> NSColor { NSColor(calibr
 func draw(name: String, dark: Bool) throws {
     let image = NSImage(size: NSSize(width: 1024, height: 1024))
     image.lockFocus()
-    (dark ? color(0, 0, 0) : color(1, 1, 1)).setFill()
-    NSBezierPath(rect: NSRect(x: 0, y: 0, width: 1024, height: 1024)).fill()
+    let background = NSBezierPath(rect: NSRect(x: 0, y: 0, width: 1024, height: 1024))
+    if dark {
+        let gradient = NSGradient(starting: color(0.035, 0.035, 0.04), ending: color(0.12, 0.12, 0.13))!
+        gradient.draw(in: background, angle: 90)
+    } else {
+        color(1, 1, 1).setFill()
+        background.fill()
+    }
     let ink = dark ? color(1, 1, 1) : color(0, 0, 0)
     NSGraphicsContext.saveGraphicsState()
     // Use the same larger wallet size in light and dark appearances.
