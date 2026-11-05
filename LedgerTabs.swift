@@ -255,15 +255,6 @@ struct SoftTopScrollEdge: ViewModifier {
     }
 }
 
-// Let the system choose the transition for the details navigation bar.
-// Kept separate from the other tabs so this experiment is easy to compare.
-private struct AutomaticTopScrollEdge: ViewModifier {
-    @ViewBuilder func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) { content.scrollEdgeEffectStyle(.automatic, for: .top) }
-        else { content }
-    }
-}
-
 private struct SearchPullOffsetKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
@@ -285,7 +276,7 @@ private struct Dashboard: View {
     @State private var showSearch = false
     @StateObject private var detailScrollPosition = DetailScrollPosition()
     @State private var pullStartedAtTop: Bool?
-    @State private var searchGestureHandled = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var searchFocused: Bool
     @AppStorage("monthlyBudget") private var budget = 0.0
     private var items: [Entry] { monthItems(ledger.entries, month) }
@@ -342,7 +333,7 @@ private struct Dashboard: View {
                     })
                     .modifier(TabArrival(selected: selected, tab: 0, showsBackground: false))
             }
-            .modifier(AutomaticTopScrollEdge())
+            .modifier(SoftTopScrollEdge())
             .scrollBounceBehavior(.always, axes: .vertical)
             .scrollDismissesKeyboard(.interactively)
             .coordinateSpace(name: "detail-scroll")
@@ -352,20 +343,19 @@ private struct Dashboard: View {
             .simultaneousGesture(DragGesture(minimumDistance: 10)
                 .onChanged { value in
                     if pullStartedAtTop == nil { pullStartedAtTop = detailScrollPosition.offset >= -1 }
-                    guard !searchGestureHandled,
-                          abs(value.translation.height) > abs(value.translation.width) else { return }
-                    if showSearch && value.translation.height < -25 {
-                        searchGestureHandled = true
-                        searchFocused = false
-                        withAnimation(.easeInOut(duration: 0.2)) { showSearch = false }
-                    } else if !showSearch && pullStartedAtTop == true && value.translation.height > 55 {
-                        searchGestureHandled = true
-                        withAnimation(.easeInOut(duration: 0.2)) { showSearch = true }
-                    }
                 }
-                .onEnded { _ in pullStartedAtTop = nil; searchGestureHandled = false })
+                .onEnded { value in
+                    defer { pullStartedAtTop = nil }
+                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                    if showSearch && value.translation.height < -25 {
+                        searchFocused = false
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { showSearch = false }
+                    } else if !showSearch && pullStartedAtTop == true && value.translation.height > 55 {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { showSearch = true }
+                    }
+                })
             .onChange(of: selected) { _, newValue in
-                if newValue != 0 { searchFocused = false; pullStartedAtTop = nil; searchGestureHandled = false }
+                if newValue != 0 { searchFocused = false; pullStartedAtTop = nil }
             }
             .accessibilityAction(named: "显示搜索") { showSearch = true; searchFocused = true }
             .background {
@@ -373,6 +363,7 @@ private struct Dashboard: View {
                     .onTapGesture { searchFocused = false }
             }
             .navigationTitle("明细").navigationBarTitleDisplayMode(.large)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { target = EditorTarget(entry: nil) } label: { Image(systemName: "plus") }.accessibilityLabel("记一笔") } }
             .alert("删除这笔账目？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
                 Button("删除", role: .destructive) { if let item = deleting { _ = ledger.save(ledger.entries.filter { $0.id != item.id }) }; deleting = nil }
