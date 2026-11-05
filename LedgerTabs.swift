@@ -597,10 +597,7 @@ private struct RadarChart: View {
                 let fractions = (0..<5).map { $0 < values.count && animated ? values[$0] / maximum : 0 }
                 RadarShape(fractions: fractions).fill(accent.opacity(0.22))
                 RadarShape(fractions: fractions).stroke(accent, lineWidth: 2)
-                ForEach(Array(values.enumerated()), id: \.offset) { index, value in
-                    let p = point(center, radius, index, count, animated ? value / maximum : 0)
-                    Circle().fill(accent).frame(width: 7, height: 7).position(p)
-                }
+                RadarShape(fractions: fractions, pointCount: values.count, drawsPoints: true).fill(accent)
             }
         }
     }
@@ -615,7 +612,9 @@ private struct RadarChart: View {
 
 private struct RadarShape: Shape {
     var a: Double; var b: Double; var c: Double; var d: Double; var e: Double
-    init(fractions: [Double]) { a = fractions[0]; b = fractions[1]; c = fractions[2]; d = fractions[3]; e = fractions[4] }
+    var pointCount: Int
+    var drawsPoints: Bool
+    init(fractions: [Double], pointCount: Int = 0, drawsPoints: Bool = false) { a = fractions[0]; b = fractions[1]; c = fractions[2]; d = fractions[3]; e = fractions[4]; self.pointCount = pointCount; self.drawsPoints = drawsPoints }
     var animatableData: AnimatablePair<AnimatablePair<Double, Double>, AnimatablePair<Double, AnimatablePair<Double, Double>>> {
         get { .init(.init(a, b), .init(c, .init(d, e))) }
         set { a = newValue.first.first; b = newValue.first.second; c = newValue.second.first; d = newValue.second.second.first; e = newValue.second.second.second }
@@ -627,9 +626,13 @@ private struct RadarShape: Shape {
             for index in 0..<5 {
                 let angle = 2 * Double.pi * Double(index) / 5 - .pi / 2
                 let p = CGPoint(x: center.x + radius * CGFloat(cos(angle) * values[index]), y: center.y + radius * CGFloat(sin(angle) * values[index]))
+                if drawsPoints {
+                    if index < pointCount { path.addEllipse(in: CGRect(x: p.x - 3.5, y: p.y - 3.5, width: 7, height: 7)) }
+                    continue
+                }
                 if index == 0 { path.move(to: p) } else { path.addLine(to: p) }
             }
-            path.closeSubpath()
+            if !drawsPoints { path.closeSubpath() }
         }
     }
 }
