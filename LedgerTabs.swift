@@ -261,6 +261,7 @@ private struct Dashboard: View {
     let selected: Int
     @State private var month = Date()
     @State private var deleting: Entry?
+    @State private var showingSearch = false
     @AppStorage("monthlyBudget") private var budget = 0.0
     private var items: [Entry] { monthItems(ledger.entries, month) }
     var body: some View {
@@ -304,9 +305,14 @@ private struct Dashboard: View {
             .navigationTitle("明细").navigationBarTitleDisplayMode(.large)
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
-                NavigationLink { LedgerSearch().environmentObject(ledger) } label: { Image(systemName: "magnifyingglass") }.accessibilityLabel("搜索账目")
+                Button { showingSearch = true } label: { Image(systemName: "magnifyingglass") }.accessibilityLabel("搜索账目")
                 Button { target = EditorTarget(entry: nil) } label: { Image(systemName: "plus") }.accessibilityLabel("记一笔")
             } }
+            .fullScreenCover(isPresented: $showingSearch) {
+                NavigationStack {
+                    LedgerSearch().environmentObject(ledger)
+                }.tint(accent)
+            }
             .alert("删除这笔账目？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
                 Button("删除", role: .destructive) { if let item = deleting { _ = ledger.save(ledger.entries.filter { $0.id != item.id }) }; deleting = nil }
                 Button("取消", role: .cancel) { deleting = nil }
@@ -345,6 +351,7 @@ private struct Dashboard: View {
 
 private struct LedgerSearch: View {
     @EnvironmentObject private var ledger: Ledger
+    @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var editing: EditorTarget?
     @FocusState private var searchFocused: Bool
@@ -394,7 +401,16 @@ private struct LedgerSearch: View {
         .scrollDismissesKeyboard(.interactively)
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .navigationTitle("搜索账目").navigationBarTitleDisplayMode(.inline)
-        .task { searchFocused = true }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("返回") { searchFocused = false; dismiss() }
+            }
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            searchFocused = true
+        }
         .sheet(item: $editing) { EntryEditor(entry: $0.entry).environmentObject(ledger).tint(accent) }
     }
 }

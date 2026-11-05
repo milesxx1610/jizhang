@@ -188,10 +188,12 @@ struct EntryEditor: View {
                                     } label: { Text("\(detailEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(detail == item ? selectionColor : .secondary).contextMenu { Button("删除细分", role: .destructive) { deleteKind = "detail"; deleteName = item } } } }.padding(.horizontal, 20)
                                 }.padding(.horizontal, -20)
                             }
-                            if !detailOptions.contains(detail) || holdDetailFieldUntilKeyboardHides {
-                                TextField("其他细分", text: $detail).focused($detailFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
-                                    .transition(revealTransition)
-                            }
+                            Group {
+                                if !detailOptions.contains(detail) || holdDetailFieldUntilKeyboardHides {
+                                    TextField("其他细分", text: $detail).focused($detailFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                                        .transition(revealTransition)
+                                }
+                            }.animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: !detailOptions.contains(detail) || holdDetailFieldUntilKeyboardHides)
                         }.transition(revealTransition)
                     }
                     platformFields
@@ -200,7 +202,6 @@ struct EntryEditor: View {
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: currency != "CNY")
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.32), value: category.isEmpty)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.32), value: category)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: detailOptions.contains(detail))
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: allPlatforms.contains(merchant))
             }.background(GeometryReader { geometry in
                 Color.clear.preference(key: ViewportBottomKey.self, value: geometry.frame(in: .global).maxY)
