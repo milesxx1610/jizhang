@@ -476,10 +476,11 @@ private struct Insights: View {
                     }.modifier(NativeMonthControls()).foregroundStyle(.primary)
                     if items.contains(where: { $0.cnyAmount == nil }) { Text("部分外币账目缺少汇率，未计入统计。") .font(.footnote).foregroundStyle(.orange) }
                     summaryCard
-                    dailyCard
                     if budget > 0 { budgetCard }
+                    dailyCard
                     abilityCard
                 }.padding(20)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: month)
                     .modifier(TabArrival(selected: selected, tab: 2, showsBackground: false))
             }.modifier(SoftTopScrollEdge())
                 .background(Color(uiColor: .systemGroupedBackground))
@@ -594,9 +595,15 @@ private struct RadarChart: View {
             let maximum = max(values.max() ?? 0, 1)
             ZStack {
                 ForEach(1...3, id: \.self) { ring in polygon(center: center, radius: radius * CGFloat(ring) / 3, count: count).stroke(Color.secondary.opacity(0.2), lineWidth: 1) }
+                Path { path in
+                    for index in 0..<count {
+                        path.move(to: center)
+                        path.addLine(to: point(center, radius, index, count, 1))
+                    }
+                }.stroke(Color.secondary.opacity(0.2), lineWidth: 1)
                 let fractions = (0..<5).map { $0 < values.count && animated ? values[$0] / maximum : 0 }
                 RadarShape(fractions: fractions).fill(accent.opacity(0.22))
-                RadarShape(fractions: fractions).stroke(accent, lineWidth: 2)
+                RadarShape(fractions: fractions).stroke(accent, style: StrokeStyle(lineWidth: 2, lineJoin: .round))
                 RadarShape(fractions: fractions, pointCount: values.count, drawsPoints: true).fill(accent)
             }
         }
@@ -661,7 +668,7 @@ private struct Preferences: View {
                     Button { importing = true } label: { Label("导入备份", systemImage: "square.and.arrow.down") }
                     NavigationLink { BackupInformation() } label: { Label("备份说明", systemImage: "info.circle") }
                 }
-                Section("关于") { LabeledContent("版本", value: "2.0 测试版") }
+                Section("关于") { LabeledContent("版本", value: "1.0") }
             }.navigationTitle("设置")
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
                 .fileExporter(isPresented: $exporting, document: document, contentType: .json, defaultFilename: "记账备份") { result in if case .failure = result { ledger.error = "导出失败，请重试。" } }
