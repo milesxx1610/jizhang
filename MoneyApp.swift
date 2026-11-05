@@ -7,6 +7,25 @@ struct Entry: Identifiable, Codable {
     var note: String
     var date: Date
     var income: Bool
+    var detail: String? = nil
+    var platform: String? = nil
+    var merchant: String? = nil
+    var payment: String? = nil
+    var currency: String? = nil
+    var cnyRate: Decimal? = nil
+    var rateDate: String? = nil
+    var recordedTime: Date? = nil
+    var cnyAmount: Decimal? { (currency ?? "CNY") == "CNY" ? amount : cnyRate.map { amount * $0 } }
+}
+
+struct LedgerBackup: Codable {
+    var formatVersion: Int
+    var entries: [Entry]
+    var customCategories: [CategoryItem]
+    var monthlyBudget: Double
+    var categoryOrder: String? = nil
+    var customEntryOptions: String? = nil
+    var customOptionEmoji: String? = nil
 }
 
 @MainActor final class Ledger: ObservableObject {
@@ -14,6 +33,46 @@ struct Entry: Identifiable, Codable {
     @Published var error: String?
     private var loadFailed = false
     private let file = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("ledger.json")
+    func exportData() throws -> Data {
+        guard !loadFailed else { throw CocoaError(.fileReadCorruptFile) }
+        let json = UserDefaults.standard.string(forKey: "customCategories") ?? "[]"
+        let categories = try JSONDecoder().decode([CategoryItem].self, from: Data(json.utf8))
+        return try JSONEncoder().encode(LedgerBackup(formatVersion: 1, entries: entries, customCategories: categories, monthlyBudget: UserDefaults.standard.double(forKey: "monthlyBudget"), categoryOrder: UserDefaults.standard.string(forKey: "categoryOrder") ?? "[]", customEntryOptions: UserDefaults.standard.string(forKey: "customEntryOptions") ?? "{}", customOptionEmoji: UserDefaults.standard.string(forKey: "customOptionEmoji") ?? "{}"))
+    }
+    func decodeBackup(_ data: Data) throws -> LedgerBackup {
+        let decoder = JSONDecoder()
+        let backup: LedgerBackup
+        if let legacy = try? decoder.decode([Entry].self, from: data) {
+            let current = UserDefaults.standard.string(forKey: "customCategories") ?? "[]"
+            backup = LedgerBackup(formatVersion: 1, entries: legacy, customCategories: try decoder.decode([CategoryItem].self, from: Data(current.utf8)), monthlyBudget: UserDefaults.standard.double(forKey: "monthlyBudget"))
+        } else {
+            backup = try decoder.decode(LedgerBackup.self, from: data)
+        }
+        guard backup.formatVersion == 1, backup.monthlyBudget.isFinite, backup.monthlyBudget >= 0, backup.monthlyBudget <= 999999999,
+              Set(backup.entries.map(\.id)).count == backup.entries.count,
+              backup.entries.allSatisfy({ $0.amount > 0 && $0.amount <= 999999999 && !$0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
+              backup.customCategories.allSatisfy({ !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
+              Set(backup.customCategories.map(\.id)).count == backup.customCategories.count else { throw CocoaError(.fileReadCorruptFile) }
+        if let order = backup.categoryOrder { _ = try decoder.decode([String].self, from: Data(order.utf8)) }
+        if let options = backup.customEntryOptions { _ = try decoder.decode([String: [String]].self, from: Data(options.utf8)) }
+        if let icons = backup.customOptionEmoji { _ = try decoder.decode([String: String].self, from: Data(icons.utf8)) }
+        return backup
+    }
+    func restore(_ backup: LedgerBackup) throws {
+        guard !loadFailed else { throw CocoaError(.fileReadCorruptFile) }
+        let categories = try JSONEncoder().encode(backup.customCategories)
+        guard let text = String(data: categories, encoding: .utf8) else { throw CocoaError(.fileReadCorruptFile) }
+        if FileManager.default.fileExists(atPath: file.path) {
+            let previous = file.deletingLastPathComponent().appendingPathComponent("ledger-before-restore-\(UUID().uuidString).json")
+            try FileManager.default.copyItem(at: file, to: previous)
+        }
+        guard save(backup.entries) else { throw CocoaError(.fileWriteUnknown) }
+        UserDefaults.standard.set(text, forKey: "customCategories")
+        UserDefaults.standard.set(backup.monthlyBudget, forKey: "monthlyBudget")
+        if let order = backup.categoryOrder { UserDefaults.standard.set(order, forKey: "categoryOrder") }
+        if let options = backup.customEntryOptions { UserDefaults.standard.set(options, forKey: "customEntryOptions") }
+        if let icons = backup.customOptionEmoji { UserDefaults.standard.set(icons, forKey: "customOptionEmoji") }
+    }
     init() {
         guard FileManager.default.fileExists(atPath: file.path) else { return }
         do { entries = try JSONDecoder().decode([Entry].self, from: Data(contentsOf: file)) }
@@ -32,7 +91,7 @@ struct Entry: Identifiable, Codable {
 
 @main struct MoneyApp: App {
     @StateObject private var ledger = Ledger()
-    var body: some Scene { WindowGroup { Home().environmentObject(ledger) } }
+    var body: some Scene { WindowGroup { LedgerTabs().environmentObject(ledger) } }
 }
 
 struct EditorTarget: Identifiable { let id = UUID(); var entry: Entry? }
@@ -103,55 +162,5 @@ struct Home: View {
     }
     private func shift(_ value: Int) { if let date = Calendar.current.date(byAdding: .month, value: value, to: month) { month = date } }
     private func metric(_ title: String, _ value: String) -> some View { VStack(alignment: .leading, spacing: 5) { Text(title).font(.caption).foregroundStyle(.secondary); Text(value).font(.title2.bold()).minimumScaleFactor(0.6).lineLimit(1) } }
-}
-
-struct EntryEditor: View {
-    @EnvironmentObject private var ledger: Ledger
-    @Environment(\.dismiss) private var dismiss
-    let entry: Entry?
-    @State private var amount: String
-    @State private var category: String
-    @State private var note: String
-    @State private var date: Date
-    @State private var income: Bool
-    @State private var error: String?
-    init(entry: Entry?) {
-        self.entry = entry
-        _amount = State(initialValue: entry.map { NSDecimalNumber(decimal: $0.amount).stringValue } ?? "")
-        _category = State(initialValue: entry?.category ?? "")
-        _note = State(initialValue: entry?.note ?? "")
-        _date = State(initialValue: entry?.date ?? Date())
-        _income = State(initialValue: entry?.income ?? false)
-    }
-    var body: some View {
-        NavigationStack {
-            Form {
-                Picker("类型", selection: $income) { Text("支出").tag(false); Text("收入").tag(true) }.pickerStyle(.segmented)
-                Section("金额") { TextField("0.00", text: $amount).keyboardType(.decimalPad) }
-                Section("详情") {
-                    TextField("分类，例如餐饮", text: $category)
-                    TextField("备注（选填）", text: $note)
-                    DatePicker("日期", selection: $date, displayedComponents: .date)
-                }
-                if let error { Text(error).foregroundStyle(.red) }
-            }
-            .navigationTitle(entry == nil ? "记一笔" : "编辑账目").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("保存") { save() } }
-            }
-        }
-    }
-    private func save() {
-        let clean = amount.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
-        let parts = clean.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count <= 2, !clean.isEmpty, clean.allSatisfy({ $0.isNumber || $0 == "." }), parts.count == 1 || parts[1].count <= 2, let value = Decimal(string: clean, locale: Locale(identifier: "en_US_POSIX")), value > 0, value <= 999999999 else { error = "请输入大于零的金额，最多两位小数。"; return }
-        let name = category.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { error = "请填写分类。"; return }
-        let updated = Entry(id: entry?.id ?? UUID(), amount: value, category: name, note: note.trimmingCharacters(in: .whitespacesAndNewlines), date: date, income: income)
-        var all = ledger.entries
-        if let index = all.firstIndex(where: { $0.id == updated.id }) { all[index] = updated } else { all.append(updated) }
-        if ledger.save(all) { dismiss() } else { error = "保存失败，请重试。" }
-    }
 }
 

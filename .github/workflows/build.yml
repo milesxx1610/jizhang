@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       preview:
-        description: '生成模拟器截图（仅已配置的分支有效）'
+        description: '生成模拟器截图'
         type: boolean
         default: false
 permissions:
@@ -22,6 +22,12 @@ jobs:
       - name: Generate project
         run: |
           set -euo pipefail
+          ls -d /Applications/Xcode*.app
+          XCODE_PATH=$(find /Applications -maxdepth 1 -name 'Xcode_26*.app' | sort -V | tail -n 1)
+          test -n "$XCODE_PATH" || { echo 'Xcode 26 is required'; exit 1; }
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          xcodebuild -version
+          swift Icon.swift
           if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
           xcodegen generate
       - name: Build and package
@@ -39,4 +45,32 @@ jobs:
           path: ${{ runner.temp }}/package/SimpleLedger-unsigned.ipa
           if-no-files-found: error
           retention-days: 7
+      - name: Preview on simulator
+        if: ${{ inputs.preview }}
+        timeout-minutes: 5
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((x["udid"] for k,v in d["devices"].items() if "iOS-26" in k for x in v if "iPhone" in x["name"]), ""))')
+          test -n "$DEVICE" || { echo 'No iOS 26 simulator available'; exit 1; }
+          xcodebuild -project SimpleLedger.xcodeproj -scheme SimpleLedger -configuration Debug -derivedDataPath "$RUNNER_TEMP/simulator-build" -destination "platform=iOS Simulator,id=$DEVICE" build CODE_SIGNING_ALLOWED=NO > "$RUNNER_TEMP/simulator-build.log" 2>&1 || { tail -n 100 "$RUNNER_TEMP/simulator-build.log"; exit 1; }
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" "$RUNNER_TEMP/simulator-build/Build/Products/Debug-iphonesimulator/SimpleLedger.app"
+          xcrun simctl ui "$DEVICE" appearance light
+          xcrun simctl launch "$DEVICE" com.miles1610.simpleledger
+          sleep 5
+          xcrun simctl io "$DEVICE" screenshot "$RUNNER_TEMP/light.png"
+          xcrun simctl ui "$DEVICE" appearance dark
+          sleep 3
+          xcrun simctl io "$DEVICE" screenshot "$RUNNER_TEMP/dark.png"
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && inputs.preview }}
+        with:
+          name: Simulator-previews
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/light.png
+            ${{ runner.temp }}/dark.png
+          if-no-files-found: ignore
 
