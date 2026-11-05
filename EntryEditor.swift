@@ -80,6 +80,7 @@ struct EntryEditor: View {
     @State private var keyboardVisible = false
     @State private var holdDetailFieldUntilKeyboardHides = false
     @State private var holdPlatformFieldUntilKeyboardHides = false
+    @State private var originalDateChanged = false
     @State private var deleteName: String?
     @State private var deleteKind = ""
     @FocusState private var amountFocused: Bool
@@ -188,12 +189,10 @@ struct EntryEditor: View {
                                     } label: { Text("\(detailEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(detail == item ? selectionColor : .secondary).contextMenu { Button("删除细分", role: .destructive) { deleteKind = "detail"; deleteName = item } } } }.padding(.horizontal, 20)
                                 }.padding(.horizontal, -20)
                             }
-                            Group {
-                                if !detailOptions.contains(detail) || holdDetailFieldUntilKeyboardHides {
-                                    TextField("其他细分", text: $detail).focused($detailFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
-                                        .transition(revealTransition)
-                                }
-                            }.animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: !detailOptions.contains(detail) || holdDetailFieldUntilKeyboardHides)
+                            if !detailOptions.contains(detail) || holdDetailFieldUntilKeyboardHides {
+                                TextField("其他细分", text: $detail).focused($detailFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                                    .transition(revealTransition)
+                            }
                         }.transition(revealTransition)
                     }
                     platformFields
@@ -202,6 +201,7 @@ struct EntryEditor: View {
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: currency != "CNY")
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.32), value: category.isEmpty)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.32), value: category)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: !detailOptions.contains(detail) || holdDetailFieldUntilKeyboardHides)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: allPlatforms.contains(merchant))
             }.background(GeometryReader { geometry in
                 Color.clear.preference(key: ViewportBottomKey.self, value: geometry.frame(in: .global).maxY)
@@ -217,6 +217,11 @@ struct EntryEditor: View {
                         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
                             proxy.scrollTo("platform-end", anchor: .bottom)
                         }
+                    }
+                }
+                .onChange(of: date) { oldValue, newValue in
+                    if entry != nil && !Calendar.current.isDate(oldValue, inSameDayAs: newValue) {
+                        originalDateChanged = true
                     }
                 }
                 .background(Color(uiColor: .systemGroupedBackground))
@@ -589,7 +594,8 @@ struct EntryEditor: View {
             guard previewKey == rateKey, let currentRate = previewRate else { error = "汇率尚未获取，请检查网络并重试。账目尚未保存。"; return }
             rate = currentRate; usedDate = previewDate
         }
-        let updated = Entry(id: entry?.id ?? UUID(), amount: value, category: category.isEmpty ? "未分类" : category, note: note.trimmingCharacters(in: .whitespacesAndNewlines), date: date, income: income, detail: detail.trimmingCharacters(in: .whitespacesAndNewlines), platform: platform.trimmingCharacters(in: .whitespacesAndNewlines), merchant: merchant.trimmingCharacters(in: .whitespacesAndNewlines), payment: payment.trimmingCharacters(in: .whitespacesAndNewlines), currency: currency, cnyRate: rate, rateDate: usedDate)
+        let recordedTime: Date? = entry == nil ? (Calendar.current.isDateInToday(date) ? Date() : nil) : (originalDateChanged ? nil : entry?.recordedTime)
+        let updated = Entry(id: entry?.id ?? UUID(), amount: value, category: category.isEmpty ? "未分类" : category, note: note.trimmingCharacters(in: .whitespacesAndNewlines), date: date, income: income, detail: detail.trimmingCharacters(in: .whitespacesAndNewlines), platform: platform.trimmingCharacters(in: .whitespacesAndNewlines), merchant: merchant.trimmingCharacters(in: .whitespacesAndNewlines), payment: payment.trimmingCharacters(in: .whitespacesAndNewlines), currency: currency, cnyRate: rate, rateDate: usedDate, recordedTime: recordedTime)
         var all = ledger.entries
         if let index = all.firstIndex(where: { $0.id == updated.id }) { all[index] = updated } else { all.append(updated) }
         if ledger.save(all) { rememberOptions(); if embedded { amount = ""; note = ""; category = ""; detail = ""; platform = ""; merchant = ""; payment = ""; date = Date(); error = nil; amountFocused = false; saved = true } else { dismiss() } }

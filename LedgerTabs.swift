@@ -273,9 +273,6 @@ private struct Dashboard: View {
                 VStack(alignment: .leading, spacing: 22) {
                     header
                     if items.contains(where: { $0.cnyAmount == nil }) { Text("部分外币账目缺少汇率，未计入人民币汇总。请编辑并重新保存。") .font(.footnote).foregroundStyle(.orange) }
-                    summary
-                    if budget > 0 { budgetCard }
-                    HStack(alignment: .firstTextBaseline) { Text("账目明细").font(.title3.bold()); Spacer(); Text("\(visibleEntries.count) 笔").font(.subheadline).foregroundStyle(.secondary) }
                     if visibleEntries.isEmpty {
                         ContentUnavailableView("还没有账目", systemImage: "tray", description: Text("点击底部记账按钮记录收支"))
                     } else {
@@ -402,8 +399,8 @@ private struct LedgerSearch: View {
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .navigationTitle("搜索账目").navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("返回") { searchFocused = false; dismiss() }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("取消") { searchFocused = false; dismiss() }
             }
         }
         .task {
@@ -435,20 +432,37 @@ private struct EntryRow: View {
                 .frame(width: 42, height: 42).background((entry.income ? accent : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
             VStack(alignment: .leading, spacing: 5) { Text(entry.category).font(.body.weight(.medium)); let subtitle = [entry.detail ?? "", entry.merchant ?? "", entry.payment ?? "", entry.platform ?? "", entry.note].filter { !$0.isEmpty }.joined(separator: " · "); if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1) }; if let rate = entry.cnyRate, let converted = entry.cnyAmount { Text("约 \(moneyText(converted)) · 汇率 \(NSDecimalNumber(decimal: rate).stringValue) · \(entry.rateDate ?? "")").font(.caption2).foregroundStyle(.secondary) } }
             Spacer(minLength: 4)
-            Text((entry.income ? "+" : "−") + moneyText(entry.amount, currency: entry.currency ?? "CNY")).font(.body.weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+            VStack(alignment: .trailing, spacing: 5) {
+                Text((entry.income ? "+" : "−") + moneyText(entry.amount, currency: entry.currency ?? "CNY")).font(.body.weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+                if let time = entry.recordedTime { Text(time, format: .dateTime.hour().minute()).font(.caption).foregroundStyle(.secondary) }
+            }
         }.padding(14).contentShape(Rectangle())
     }
 }
 
 private struct Insights: View {
     @EnvironmentObject private var ledger: Ledger
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let selected: Int
     @State private var month = Date()
     @State private var showingSettings = false
+    @AppStorage("monthlyBudget") private var budget = 0.0
+    @State private var showIncome = false
+    @State private var selectedDay: Int?
+    @State private var animated = false
+    @State private var appeared = false
     private var items: [Entry] { monthItems(ledger.entries, month) }
     private var categories: [(name: String, value: Double)] {
-        let groups = Dictionary(grouping: items.filter { !$0.income }, by: \.category)
-        return groups.map { (name: $0.key, value: ($0.value.reduce(Decimal.zero) { $0 + ($1.cnyAmount ?? 0) } as NSDecimalNumber).doubleValue) }.sorted { $0.value > $1.value }
+        let groups = Dictionary(grouping: items.filter { $0.income == showIncome && $0.cnyAmount != nil }, by: \.category)
+        let sorted = groups.map { (name: $0.key, value: ($0.value.reduce(Decimal.zero) { $0 + ($1.cnyAmount ?? 0) } as NSDecimalNumber).doubleValue) }.sorted { $0.value > $1.value }
+        guard sorted.count > 5 else { return sorted }
+        return Array(sorted.prefix(4)) + [(name: "其他", value: sorted.dropFirst(4).reduce(0) { $0 + $1.value })]
+    }
+    private var spent: Decimal { sum(items, income: false) }
+    private var earned: Decimal { sum(items, income: true) }
+    private var dayCount: Int { Calendar.current.range(of: .day, in: .month, for: month)?.count ?? 30 }
+    private func daily(_ day: Int) -> Double {
+        (items.filter { !$0.income && Calendar.current.component(.day, from: $0.date) == day }.reduce(Decimal.zero) { $0 + ($1.cnyAmount ?? 0) } as NSDecimalNumber).doubleValue
     }
     var body: some View {
         NavigationStack {
@@ -456,16 +470,10 @@ private struct Insights: View {
                 VStack(alignment: .leading, spacing: 20) {
                     HStack { Button { shift(-1) } label: { Image(systemName: "chevron.left") }; Spacer(); Text(month, format: .dateTime.year().month()).font(.headline); Spacer(); Button { shift(1) } label: { Image(systemName: "chevron.right") } }.padding(.vertical, 10)
                     if items.contains(where: { $0.cnyAmount == nil }) { Text("部分外币账目缺少汇率，未计入统计。") .font(.footnote).foregroundStyle(.orange) }
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("支出分类").font(.headline)
-                        if categories.isEmpty { Text("本月暂无支出，记一笔后即可查看统计。 ").font(.subheadline).foregroundStyle(.secondary).padding(.vertical, 25) }
-                        else {
-                            Chart(categories, id: \.name) { item in BarMark(x: .value("金额", item.value), y: .value("分类", item.name)).foregroundStyle(accent.gradient).cornerRadius(5) }
-                                .frame(height: CGFloat(max(140, categories.count * 38)))
-                            ForEach(categories, id: \.name) { item in HStack { Text(item.name); Spacer(); Text(moneyText(Decimal(item.value))).monospacedDigit() }.font(.subheadline) }
-                        }
-                    }.padding(20).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22))
-                    Text("按账目分类汇总，仅统计所选月份的支出。 ").font(.footnote).foregroundStyle(.secondary)
+                    summaryCard
+                    dailyCard
+                    if budget > 0 { budgetCard }
+                    abilityCard
                 }.padding(20)
                     .modifier(TabArrival(selected: selected, tab: 2, showsBackground: false))
             }.modifier(SoftTopScrollEdge())
@@ -473,9 +481,107 @@ private struct Insights: View {
                 .navigationTitle("统计").navigationBarTitleDisplayMode(.large)
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showingSettings = true } label: { Image(systemName: "gearshape") }.accessibilityLabel("设置") } }
                 .sheet(isPresented: $showingSettings) { Preferences() }
+                .onChange(of: selected) { _, value in if value == 2 && !appeared { appeared = true; animateValues() } }
+                .onChange(of: showIncome) { _, _ in animateValues() }
+                .onAppear { if selected == 2 && !appeared { appeared = true; animateValues() } }
         }.tint(accent)
     }
-    private func shift(_ n: Int) { if let next = Calendar.current.date(byAdding: .month, value: n, to: month) { month = next } }
+    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 14, content: content).frame(maxWidth: .infinity, alignment: .leading).padding(20)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22))
+    }
+    private var summaryCard: some View {
+        card {
+            Text("本月支出").font(.subheadline).foregroundStyle(.secondary)
+            Text(moneyText(spent)).font(.system(size: 34, weight: .bold, design: .rounded)).lineLimit(1).minimumScaleFactor(0.6)
+            Divider()
+            HStack { metric("收入", earned); Spacer(); metric("收支结余", earned - spent) }
+        }
+    }
+    private func metric(_ label: String, _ value: Decimal) -> some View {
+        VStack(alignment: .leading, spacing: 5) { Text(label).font(.caption).foregroundStyle(.secondary); Text(moneyText(value)).font(.headline).lineLimit(1).minimumScaleFactor(0.6) }
+    }
+    private var dailyCard: some View {
+        card {
+            HStack { Text("每日支出").font(.headline); Spacer(); if let day = selectedDay, (1...dayCount).contains(day) { Text("\(day)日 · \(moneyText(Decimal(daily(day))))").font(.caption).foregroundStyle(.secondary) } }
+            Chart(1...dayCount, id: \.self) { day in
+                BarMark(x: .value("日期", day), y: .value("支出", animated ? daily(day) : 0)).foregroundStyle(day == selectedDay ? accent : accent.opacity(0.65)).cornerRadius(3)
+            }.chartXScale(domain: 1...dayCount).chartXSelection(value: $selectedDay)
+                .chartXAxis { AxisMarks(values: .stride(by: 7)) { AxisValueLabel() } }
+                .chartYAxis(.hidden).frame(height: 130)
+            if !items.contains(where: { !$0.income && $0.cnyAmount != nil }) { Text("本月暂无支出").font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+    private var budgetCard: some View {
+        let value = (spent as NSDecimalNumber).doubleValue
+        let progress = min(max(value / budget, 0), 1)
+        return card {
+            HStack { Label("月度预算", systemImage: "wallet.pass").font(.headline); Spacer(); Text(value > budget ? "超支" : "剩余").foregroundStyle(.secondary).font(.caption); Text(moneyText(Decimal(abs(budget - value)))).font(.subheadline.bold()) }
+            GeometryReader { geometry in
+                let width = geometry.size.width * (animated ? progress : 0)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.secondary.opacity(0.2)).frame(height: 5)
+                    Capsule().fill(value > budget ? Color.orange : accent).frame(width: width, height: 5)
+                    Circle().fill(value > budget ? Color.orange : accent).frame(width: 10, height: 10).offset(x: min(max(width - 5, 0), max(geometry.size.width - 10, 0)))
+                }.frame(maxHeight: .infinity)
+            }.frame(height: 14)
+            Text("预算 \(moneyText(Decimal(budget))) · 已支出 \(moneyText(spent))").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+    private var abilityCard: some View {
+        card {
+            HStack { Text("收支能力").font(.headline); Spacer(); Picker("收支", selection: $showIncome) { Text("支出").tag(false); Text("收入").tag(true) }.pickerStyle(.segmented).frame(width: 125) }
+            if categories.isEmpty { Text(showIncome ? "本月暂无收入" : "本月暂无支出").font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 35) }
+            else {
+                RadarChart(values: categories.map(\.value), animated: animated).frame(height: 160).padding(.vertical, 8).accessibilityHidden(true)
+                ForEach(categories, id: \.name) { item in HStack { Text(item.name); Spacer(); Text(moneyText(Decimal(item.value))).monospacedDigit() }.font(.subheadline) }
+            }
+        }
+    }
+    private func animateValues() {
+        animated = false
+        guard !reduceMotion else { animated = true; return }
+        DispatchQueue.main.async { withAnimation(.easeOut(duration: 0.6)) { animated = true } }
+    }
+    private func shift(_ n: Int) { if let next = Calendar.current.date(byAdding: .month, value: n, to: month) { month = next; selectedDay = nil; animateValues() } }
+}
+
+private struct RadarChart: View {
+    let values: [Double]
+    let animated: Bool
+    var body: some View {
+        GeometryReader { geometry in
+            let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+            let radius = min(geometry.size.width, geometry.size.height) * 0.44
+            let count = max(values.count, 3)
+            let maximum = max(values.max() ?? 0, 1)
+            ZStack {
+                ForEach(1...3, id: \.self) { ring in polygon(center: center, radius: radius * CGFloat(ring) / 3, count: count).stroke(Color.secondary.opacity(0.2), lineWidth: 1) }
+                dataPath(center: center, radius: radius, count: count, maximum: maximum).fill(accent.opacity(0.22))
+                dataPath(center: center, radius: radius, count: count, maximum: maximum).stroke(accent, lineWidth: 2)
+                ForEach(Array(values.enumerated()), id: \.offset) { index, value in
+                    let p = point(center, radius, index, count, animated ? value / maximum : 0)
+                    Circle().fill(accent).frame(width: 7, height: 7).position(p)
+                }
+            }
+        }
+    }
+    private func point(_ center: CGPoint, _ radius: CGFloat, _ index: Int, _ count: Int, _ fraction: Double) -> CGPoint {
+        let angle = 2 * Double.pi * Double(index) / Double(count) - .pi / 2
+        return CGPoint(x: center.x + radius * CGFloat(cos(angle) * fraction), y: center.y + radius * CGFloat(sin(angle) * fraction))
+    }
+    private func polygon(center: CGPoint, radius: CGFloat, count: Int) -> Path {
+        Path { path in for index in 0..<count { let p = point(center, radius, index, count, 1); if index == 0 { path.move(to: p) } else { path.addLine(to: p) } }; path.closeSubpath() }
+    }
+    private func dataPath(center: CGPoint, radius: CGFloat, count: Int, maximum: Double) -> Path {
+        Path { path in
+            for index in 0..<count {
+                let p = point(center, radius, index, count, index < values.count && animated ? values[index] / maximum : 0)
+                if index == 0 { path.move(to: p) } else { path.addLine(to: p) }
+            }
+            path.closeSubpath()
+        }
+    }
 }
 
 private struct Preferences: View {

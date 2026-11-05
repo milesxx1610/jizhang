@@ -14,6 +14,7 @@ struct Entry: Identifiable, Codable {
     var currency: String? = nil
     var cnyRate: Decimal? = nil
     var rateDate: String? = nil
+    var recordedTime: Date? = nil
     var cnyAmount: Decimal? { (currency ?? "CNY") == "CNY" ? amount : cnyRate.map { amount * $0 } }
 }
 
@@ -162,5 +163,4 @@ struct Home: View {
     private func shift(_ value: Int) { if let date = Calendar.current.date(byAdding: .month, value: value, to: month) { month = date } }
     private func metric(_ title: String, _ value: String) -> some View { VStack(alignment: .leading, spacing: 5) { Text(title).font(.caption).foregroundStyle(.secondary); Text(value).font(.title2.bold()).minimumScaleFactor(0.6).lineLimit(1) } }
 }
-
 
