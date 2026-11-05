@@ -78,6 +78,8 @@ struct EntryEditor: View {
     @State private var saved = false
     @State private var saving = false
     @State private var keyboardVisible = false
+    @State private var holdDetailFieldUntilKeyboardHides = false
+    @State private var holdPlatformFieldUntilKeyboardHides = false
     @State private var deleteName: String?
     @State private var deleteKind = ""
     @FocusState private var amountFocused: Bool
@@ -177,10 +179,16 @@ struct EntryEditor: View {
                             HStack { Text("细分").font(.headline); Spacer(); optionMenu(kind: "detail") }
                             if !detailOptions.isEmpty {
                                 ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack { ForEach(detailOptions, id: \.self) { item in Button { detail = detail == item ? "" : item; selectionFeedback() } label: { Text("\(detailEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(detail == item ? selectionColor : .secondary).contextMenu { Button("删除细分", role: .destructive) { deleteKind = "detail"; deleteName = item } } } }.padding(.horizontal, 20)
+                                    HStack { ForEach(detailOptions, id: \.self) { item in Button {
+                                        if keyboardVisible && !detailOptions.contains(detail) {
+                                            holdDetailFieldUntilKeyboardHides = true
+                                            dismissKeyboard()
+                                        }
+                                        detail = detail == item ? "" : item; selectionFeedback()
+                                    } label: { Text("\(detailEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(detail == item ? selectionColor : .secondary).contextMenu { Button("删除细分", role: .destructive) { deleteKind = "detail"; deleteName = item } } } }.padding(.horizontal, 20)
                                 }.padding(.horizontal, -20)
                             }
-                            if !detailOptions.contains(detail) {
+                            if !detailOptions.contains(detail) || holdDetailFieldUntilKeyboardHides {
                                 TextField("其他细分", text: $detail).focused($detailFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
                                     .transition(revealTransition)
                             }
@@ -227,6 +235,10 @@ struct EntryEditor: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+                    holdDetailFieldUntilKeyboardHides = false
+                    holdPlatformFieldUntilKeyboardHides = false
+                }
                 .navigationTitle(embedded ? "记账" : "编辑账目")
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
                 .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
@@ -368,8 +380,14 @@ struct EntryEditor: View {
             if !category.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                 HStack { Text("平台").font(.headline); Spacer(); optionMenu(kind: "platform") }
-                ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(allPlatforms, id: \.self) { item in Button { merchant = merchant == item ? "" : item; selectionFeedback() } label: { Text("\(platformEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(merchant == item ? selectionColor : .secondary).contextMenu { Button("删除平台", role: .destructive) { deleteKind = "platform"; deleteName = item } } } }.padding(.horizontal, 20) }.padding(.horizontal, -20)
-                if !allPlatforms.contains(merchant) {
+                ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(allPlatforms, id: \.self) { item in Button {
+                    if keyboardVisible && !allPlatforms.contains(merchant) {
+                        holdPlatformFieldUntilKeyboardHides = true
+                        dismissKeyboard()
+                    }
+                    merchant = merchant == item ? "" : item; selectionFeedback()
+                } label: { Text("\(platformEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(merchant == item ? selectionColor : .secondary).contextMenu { Button("删除平台", role: .destructive) { deleteKind = "platform"; deleteName = item } } } }.padding(.horizontal, 20) }.padding(.horizontal, -20)
+                if !allPlatforms.contains(merchant) || holdPlatformFieldUntilKeyboardHides {
                     TextField("其他平台", text: $merchant).focused($platformFocused).padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
                         .transition(revealTransition)
                 }

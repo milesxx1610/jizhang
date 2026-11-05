@@ -29,7 +29,7 @@ struct LedgerTabs: View {
 
     var body: some View {
         NativeLedgerTabs(target: $target, selected: $selected, ledger: ledger, reduceMotion: reduceMotion)
-            .ignoresSafeArea(.container, edges: .bottom)
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger).tint(accent) }
@@ -255,59 +255,28 @@ struct SoftTopScrollEdge: ViewModifier {
     }
 }
 
-private struct SearchPullOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
-// Scroll offsets are read by the pull gesture but do not need to redraw the
-// entire dashboard for every pixel of scrolling.
-private final class DetailScrollPosition: ObservableObject {
-    var offset: CGFloat = 0
-}
-
 private struct Dashboard: View {
     @EnvironmentObject private var ledger: Ledger
     @Binding var target: EditorTarget?
     let selected: Int
     @State private var month = Date()
     @State private var deleting: Entry?
-    @State private var search = ""
-    @State private var showSearch = false
-    @StateObject private var detailScrollPosition = DetailScrollPosition()
-    @State private var pullStartedAtTop: Bool?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @FocusState private var searchFocused: Bool
     @AppStorage("monthlyBudget") private var budget = 0.0
     private var items: [Entry] { monthItems(ledger.entries, month) }
-    private var visible: [Entry] { search.isEmpty ? items : items.filter { [$0.category, $0.note, $0.detail ?? "", $0.platform ?? "", $0.merchant ?? "", $0.payment ?? ""].contains { $0.localizedCaseInsensitiveContains(search) } } }
     var body: some View {
-        let visibleEntries = visible
+        let visibleEntries = items
         let entriesByDay = Dictionary(grouping: visibleEntries) { Calendar.current.startOfDay(for: $0.date) }
         let days = entriesByDay.keys.sorted(by: >)
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    if showSearch {
-                        HStack {
-                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                            TextField("搜索分类或备注", text: $search).focused($searchFocused)
-                        }.padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
-                    }
-                    if !showSearch && !search.isEmpty {
-                        HStack {
-                            Text("正在搜索：\(search)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            Spacer()
-                            Button("清除搜索") { search = "" }.font(.caption)
-                        }
-                    }
                     header
                     if items.contains(where: { $0.cnyAmount == nil }) { Text("部分外币账目缺少汇率，未计入人民币汇总。请编辑并重新保存。") .font(.footnote).foregroundStyle(.orange) }
                     summary
                     if budget > 0 { budgetCard }
                     HStack(alignment: .firstTextBaseline) { Text("账目明细").font(.title3.bold()); Spacer(); Text("\(visibleEntries.count) 笔").font(.subheadline).foregroundStyle(.secondary) }
                     if visibleEntries.isEmpty {
-                        ContentUnavailableView(search.isEmpty ? "还没有账目" : "没有找到结果", systemImage: search.isEmpty ? "tray" : "magnifyingglass", description: Text(search.isEmpty ? "点击底部记账按钮记录收支" : "试试其他关键词"))
+                        ContentUnavailableView("还没有账目", systemImage: "tray", description: Text("点击底部记账按钮记录收支"))
                     } else {
                         LazyVStack(alignment: .leading, spacing: 20) {
                             ForEach(days, id: \.self) { day in
@@ -325,46 +294,19 @@ private struct Dashboard: View {
                         }
                     }
                 }.padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 40)
-                    .background {
-                        Color.clear.contentShape(Rectangle()).onTapGesture { searchFocused = false }
-                    }
-                    .background(GeometryReader { geometry in
-                        Color.clear.preference(key: SearchPullOffsetKey.self, value: geometry.frame(in: .named("detail-scroll")).minY)
-                    })
                     .modifier(TabArrival(selected: selected, tab: 0, showsBackground: false))
             }
             .modifier(SoftTopScrollEdge())
             .scrollBounceBehavior(.always, axes: .vertical)
-            .scrollDismissesKeyboard(.interactively)
-            .coordinateSpace(name: "detail-scroll")
-            .onPreferenceChange(SearchPullOffsetKey.self) { offset in
-                detailScrollPosition.offset = offset
-            }
-            .simultaneousGesture(DragGesture(minimumDistance: 10)
-                .onChanged { value in
-                    if pullStartedAtTop == nil { pullStartedAtTop = detailScrollPosition.offset >= -1 }
-                }
-                .onEnded { value in
-                    defer { pullStartedAtTop = nil }
-                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                    if showSearch && value.translation.height < -25 {
-                        searchFocused = false
-                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { showSearch = false }
-                    } else if !showSearch && pullStartedAtTop == true && value.translation.height > 55 {
-                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { showSearch = true }
-                    }
-                })
-            .onChange(of: selected) { _, newValue in
-                if newValue != 0 { searchFocused = false; pullStartedAtTop = nil }
-            }
-            .accessibilityAction(named: "显示搜索") { showSearch = true; searchFocused = true }
             .background {
-                Color(uiColor: .systemGroupedBackground).ignoresSafeArea().contentShape(Rectangle())
-                    .onTapGesture { searchFocused = false }
+                Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
             }
             .navigationTitle("明细").navigationBarTitleDisplayMode(.large)
             .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { target = EditorTarget(entry: nil) } label: { Image(systemName: "plus") }.accessibilityLabel("记一笔") } }
+            .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
+                NavigationLink { LedgerSearch().environmentObject(ledger) } label: { Image(systemName: "magnifyingglass") }.accessibilityLabel("搜索账目")
+                Button { target = EditorTarget(entry: nil) } label: { Image(systemName: "plus") }.accessibilityLabel("记一笔")
+            } }
             .alert("删除这笔账目？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
                 Button("删除", role: .destructive) { if let item = deleting { _ = ledger.save(ledger.entries.filter { $0.id != item.id }) }; deleting = nil }
                 Button("取消", role: .cancel) { deleting = nil }
@@ -399,6 +341,62 @@ private struct Dashboard: View {
     }
     private func amountLabel(_ title: String, _ amount: Decimal) -> some View { VStack(alignment: .leading, spacing: 5) { Text(title).font(.caption).foregroundStyle(.secondary); Text(moneyText(amount)).font(.headline).lineLimit(1).minimumScaleFactor(0.6) } }
     private func shift(_ offset: Int) { if let next = Calendar.current.date(byAdding: .month, value: offset, to: month) { withAnimation { month = next } } }
+}
+
+private struct LedgerSearch: View {
+    @EnvironmentObject private var ledger: Ledger
+    @State private var query = ""
+    @State private var editing: EditorTarget?
+    @FocusState private var searchFocused: Bool
+
+    private var matches: [Entry] {
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return [] }
+        return ledger.entries.filter { entry in
+            [entry.category, entry.detail ?? "", entry.platform ?? "", entry.merchant ?? "", entry.payment ?? "", entry.note]
+                .contains { $0.localizedCaseInsensitiveContains(term) }
+        }.sorted { $0.date > $1.date }
+    }
+
+    var body: some View {
+        let groups = Dictionary(grouping: matches) { Calendar.current.startOfDay(for: $0.date) }
+        let days = groups.keys.sorted(by: >)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("搜索分类、平台或备注", text: $query).focused($searchFocused)
+                        .submitLabel(.search)
+                }.padding(12).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+
+                if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ContentUnavailableView("搜索全部账目", systemImage: "magnifyingglass", description: Text("输入分类、平台或备注"))
+                } else if days.isEmpty {
+                    ContentUnavailableView("没有找到相关账目", systemImage: "magnifyingglass", description: Text("试试其他关键词"))
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 20) {
+                        ForEach(days, id: \.self) { day in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(day, format: .dateTime.year().month().day().weekday(.wide)).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                                VStack(spacing: 0) {
+                                    ForEach(groups[day] ?? []) { entry in
+                                        Button { searchFocused = false; editing = EditorTarget(entry: entry) } label: { EntryRow(entry: entry) }.buttonStyle(.plain)
+                                        if entry.id != groups[day]?.last?.id { Divider().padding(.leading, 64) }
+                                    }
+                                }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                            }
+                        }
+                    }
+                }
+            }.padding(20).frame(maxWidth: .infinity, minHeight: 400, alignment: .topLeading)
+                .background { Color.clear.contentShape(Rectangle()).onTapGesture { searchFocused = false } }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        .navigationTitle("搜索账目").navigationBarTitleDisplayMode(.inline)
+        .task { searchFocused = true }
+        .sheet(item: $editing) { EntryEditor(entry: $0.entry).environmentObject(ledger).tint(accent) }
+    }
 }
 
 private struct NativeMonthControls: ViewModifier {
@@ -466,10 +464,8 @@ private struct Insights: View {
 
 private struct Preferences: View {
     @EnvironmentObject private var ledger: Ledger
+    @Environment(\.dismiss) private var dismiss
     @AppStorage("monthlyBudget") private var budget = 0.0
-    @State private var input = ""
-    @FocusState private var budgetFocused: Bool
-    @State private var message = false
     @State private var exporting = false
     @State private var importing = false
     @State private var pendingBackup: LedgerBackup?
@@ -480,22 +476,19 @@ private struct Preferences: View {
         NavigationStack {
             Form {
                 Section("月度预算") {
-                    HStack { Text("¥"); TextField("不设置", text: $input).keyboardType(.decimalPad).focused($budgetFocused) }
-                    Button("保存预算") { let value = Double(input.replacingOccurrences(of: ",", with: ".")) ?? -1; if value >= 0 && value <= 999999999 { budget = value; message = true } }
-                    Text(budget > 0 ? "当前预算：\(moneyText(Decimal(budget)))。输入 0 可关闭。" : "设置后，首页显示本月预算进度。") .font(.footnote).foregroundStyle(.secondary)
+                    NavigationLink { BudgetSettings() } label: {
+                        LabeledContent("月度预算", value: budget > 0 ? moneyText(Decimal(budget)) : "未设置")
+                    }
                 }
-                Section("数据与隐私") {
+                Section("数据与备份") {
                     Label("数据保存在本机", systemImage: "iphone")
-                    Button("导出账目备份") { do { document = LedgerDocument(data: try ledger.exportData()); exporting = true } catch { ledger.error = "读取账目失败，无法导出。" } }
-                    Button("导入备份") { importing = true }
-                    Text("备份包含账目、预算，以及自定义分类、细分、平台、图标和顺序；导入会替换备份中包含的对应数据。旧版备份中缺少的设置会保留当前值。请妥善保管备份；删除 App 可能导致本地数据丢失。") .font(.footnote).foregroundStyle(.secondary)
+                    Button { do { document = LedgerDocument(data: try ledger.exportData()); exporting = true } catch { ledger.error = "读取账目失败，无法导出。" } } label: { Label("导出账目备份", systemImage: "square.and.arrow.up") }
+                    Button { importing = true } label: { Label("导入备份", systemImage: "square.and.arrow.down") }
+                    NavigationLink { BackupInformation() } label: { Label("备份说明", systemImage: "info.circle") }
                 }
                 Section("关于") { LabeledContent("版本", value: "2.0 测试版") }
-            }.scrollDismissesKeyboard(.interactively)
-                .onTapGesture { budgetFocused = false }
-                .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("完成") { budgetFocused = false } } }
-                .navigationTitle("设置").onAppear { input = budget > 0 ? String(format: "%.2f", budget) : "" }
-                .alert("预算已保存", isPresented: $message) { Button("好", role: .cancel) {} }
+            }.navigationTitle("设置")
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
                 .fileExporter(isPresented: $exporting, document: document, contentType: .json, defaultFilename: "记账备份") { result in if case .failure = result { ledger.error = "导出失败，请重试。" } }
                 .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
                     do {
@@ -515,6 +508,43 @@ private struct Preferences: View {
                 .alert("导入完成", isPresented: $restored) { Button("好", role: .cancel) {} }
                 .alert("导入失败", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) { Button("好", role: .cancel) { importError = nil } } message: { Text(importError ?? "") }
         }
+    }
+}
+
+private struct BudgetSettings: View {
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("monthlyBudget") private var budget = 0.0
+    @State private var input = ""
+    @State private var invalid = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Form {
+            Section {
+                HStack { Text("¥"); TextField("不设置", text: $input).keyboardType(.decimalPad).focused($focused) }
+                Button("保存预算") {
+                    guard let value = Double(input.replacingOccurrences(of: ",", with: ".")), value.isFinite, value >= 0, value <= 999999999 else { invalid = true; return }
+                    budget = value
+                    dismiss()
+                }
+            } footer: { Text("输入 0 可关闭月度预算。") }
+        }
+        .navigationTitle("月度预算").navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .onTapGesture { focused = false }
+        .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("完成") { focused = false } } }
+        .onAppear { input = budget > 0 ? String(format: "%.2f", budget) : "" }
+        .alert("请输入有效的预算金额", isPresented: $invalid) { Button("好", role: .cancel) {} }
+    }
+}
+
+private struct BackupInformation: View {
+    var body: some View {
+        Form {
+            Section("备份内容") { Text("备份包含账目、预算，以及自定义分类、细分、平台、图标和顺序。") }
+            Section("导入备份") { Text("导入会替换备份中包含的对应数据；旧版备份中缺少的设置会保留当前值。建议导入前先导出当前备份。") }
+            Section("数据保存") { Text("数据保存在本机。请妥善保管备份；删除 App 可能导致本地数据丢失。") }
+        }.navigationTitle("备份说明").navigationBarTitleDisplayMode(.inline)
     }
 }
 
