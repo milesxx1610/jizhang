@@ -186,7 +186,7 @@ struct EntryEditor: View {
                                             dismissKeyboard()
                                         }
                                         detail = detail == item ? "" : item; selectionFeedback()
-                                    } label: { Text("\(detailEmoji(item)) \(item)") }.buttonStyle(.bordered).tint(detail == item ? selectionColor : .secondary).contextMenu { Button("删除细分", role: .destructive) { deleteKind = "detail"; deleteName = item } } } }.padding(.horizontal, 20)
+                                    } label: { Text("\(detailEmoji(item)) \(item)").transaction { if detailFocused || holdDetailFieldUntilKeyboardHides { $0.animation = nil } } }.buttonStyle(.bordered).tint(detail == item ? selectionColor : .secondary).contextMenu { Button("删除细分", role: .destructive) { deleteKind = "detail"; deleteName = item } } } }.padding(.horizontal, 20)
                                 }.padding(.horizontal, -20)
                             }
                             if !detailOptions.contains(detail) || holdDetailFieldUntilKeyboardHides {
@@ -202,7 +202,7 @@ struct EntryEditor: View {
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.32), value: category.isEmpty)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.32), value: category)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: !detailOptions.contains(detail) || holdDetailFieldUntilKeyboardHides)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: allPlatforms.contains(merchant))
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: !allPlatforms.contains(merchant) || holdPlatformFieldUntilKeyboardHides)
             }.background(GeometryReader { geometry in
                 Color.clear.preference(key: ViewportBottomKey.self, value: geometry.frame(in: .global).maxY)
             })
@@ -245,9 +245,9 @@ struct EntryEditor: View {
                     holdDetailFieldUntilKeyboardHides = false
                     holdPlatformFieldUntilKeyboardHides = false
                 }
-                .navigationTitle(embedded ? "记账" : "编辑账目")
+                .navigationTitle(embedded ? "记账" : (entry == nil ? "记一笔" : "编辑账目"))
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
-                .toolbar { if !embedded { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
+                .toolbar { if !embedded { ToolbarItem(placement: .confirmationAction) { Button("取消") { dismiss() } } } }
                 .task(id: rateKey) { await loadPreviewRate() }
                 .sheet(isPresented: $showSort) { sortSheet }
                 .sheet(isPresented: $showOptionSort) { optionSortSheet }

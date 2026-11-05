@@ -449,14 +449,15 @@ private struct Insights: View {
     @AppStorage("monthlyBudget") private var budget = 0.0
     @State private var showIncome = false
     @State private var selectedDay: Int?
-    @State private var animated = false
+    @State private var dailyAnimated = false
+    @State private var budgetAnimated = false
+    @State private var radarAnimated = false
     @State private var appeared = false
     private var items: [Entry] { monthItems(ledger.entries, month) }
     private var categories: [(name: String, value: Double)] {
         let groups = Dictionary(grouping: items.filter { $0.income == showIncome && $0.cnyAmount != nil }, by: \.category)
         let sorted = groups.map { (name: $0.key, value: ($0.value.reduce(Decimal.zero) { $0 + ($1.cnyAmount ?? 0) } as NSDecimalNumber).doubleValue) }.sorted { $0.value > $1.value }
-        guard sorted.count > 5 else { return sorted }
-        return Array(sorted.prefix(4)) + [(name: "其他", value: sorted.dropFirst(4).reduce(0) { $0 + $1.value })]
+        return Array(sorted.prefix(5))
     }
     private var spent: Decimal { sum(items, income: false) }
     private var earned: Decimal { sum(items, income: true) }
@@ -468,7 +469,11 @@ private struct Insights: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    HStack { Button { shift(-1) } label: { Image(systemName: "chevron.left") }; Spacer(); Text(month, format: .dateTime.year().month()).font(.headline); Spacer(); Button { shift(1) } label: { Image(systemName: "chevron.right") } }.padding(.vertical, 10)
+                    HStack {
+                        Button { shift(-1) } label: { Image(systemName: "chevron.left").frame(width: 34, height: 34) }.accessibilityLabel("上个月")
+                        Spacer(); Text(month, format: .dateTime.year().month()).font(.headline); Spacer()
+                        Button { shift(1) } label: { Image(systemName: "chevron.right").frame(width: 34, height: 34) }.accessibilityLabel("下个月")
+                    }.modifier(NativeMonthControls()).foregroundStyle(.primary)
                     if items.contains(where: { $0.cnyAmount == nil }) { Text("部分外币账目缺少汇率，未计入统计。") .font(.footnote).foregroundStyle(.orange) }
                     summaryCard
                     dailyCard
@@ -482,7 +487,7 @@ private struct Insights: View {
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showingSettings = true } label: { Image(systemName: "gearshape") }.accessibilityLabel("设置") } }
                 .sheet(isPresented: $showingSettings) { Preferences() }
                 .onChange(of: selected) { _, value in if value == 2 && !appeared { appeared = true; animateValues() } }
-                .onChange(of: showIncome) { _, _ in animateValues() }
+                .onChange(of: showIncome) { _, _ in UISelectionFeedbackGenerator().selectionChanged() }
                 .onAppear { if selected == 2 && !appeared { appeared = true; animateValues() } }
         }.tint(accent)
     }
@@ -504,11 +509,31 @@ private struct Insights: View {
     private var dailyCard: some View {
         card {
             HStack { Text("每日支出").font(.headline); Spacer(); if let day = selectedDay, (1...dayCount).contains(day) { Text("\(day)日 · \(moneyText(Decimal(daily(day))))").font(.caption).foregroundStyle(.secondary) } }
-            Chart(1...dayCount, id: \.self) { day in
-                BarMark(x: .value("日期", day), y: .value("支出", animated ? daily(day) : 0)).foregroundStyle(day == selectedDay ? accent : accent.opacity(0.65)).cornerRadius(3)
-            }.chartXScale(domain: 1...dayCount).chartXSelection(value: $selectedDay)
-                .chartXAxis { AxisMarks(values: .stride(by: 7)) { AxisValueLabel() } }
-                .chartYAxis(.hidden).frame(height: 130)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Chart(1...dayCount, id: \.self) { day in
+                        BarMark(x: .value("日期", day), y: .value("支出", dailyAnimated ? daily(day) : 0), width: 16).foregroundStyle(day == selectedDay ? accent : accent.opacity(0.65)).cornerRadius(3)
+                    }.chartXScale(domain: 0...(dayCount + 1))
+                        .chartYScale(domain: 0...max((1...dayCount).map { daily($0) }.max() ?? 0, 1))
+                        .chartXAxis { AxisMarks(values: .stride(by: 1)) { AxisValueLabel() } }
+                        .chartYAxis(.hidden).frame(width: CGFloat(dayCount) * 32, height: 130)
+                        .chartOverlay { chart in
+                            GeometryReader { geometry in
+                                Rectangle().fill(.clear).contentShape(Rectangle())
+                                    .gesture(SpatialTapGesture().onEnded { event in
+                                        guard let plotFrame = chart.plotFrame else { return }
+                                        let x = event.location.x - geometry[plotFrame].origin.x
+                                        guard x >= 0, x <= geometry[plotFrame].width,
+                                              let value: Double = chart.value(atX: x) else { return }
+                                        let day = Int(value.rounded())
+                                        guard (1...dayCount).contains(day), day != selectedDay else { return }
+                                        selectedDay = day
+                                        UISelectionFeedbackGenerator().selectionChanged()
+                                    })
+                            }
+                        }.id("daily-chart")
+                }.onAppear { if Calendar.current.isDate(month, equalTo: Date(), toGranularity: .month) { proxy.scrollTo("daily-chart", anchor: .trailing) } }
+            }.id(Calendar.current.dateComponents([.year, .month], from: month))
             if !items.contains(where: { !$0.income && $0.cnyAmount != nil }) { Text("本月暂无支出").font(.caption).foregroundStyle(.secondary) }
         }
     }
@@ -518,30 +543,34 @@ private struct Insights: View {
         return card {
             HStack { Label("月度预算", systemImage: "wallet.pass").font(.headline); Spacer(); Text(value > budget ? "超支" : "剩余").foregroundStyle(.secondary).font(.caption); Text(moneyText(Decimal(abs(budget - value)))).font(.subheadline.bold()) }
             GeometryReader { geometry in
-                let width = geometry.size.width * (animated ? progress : 0)
+                let width = geometry.size.width * (budgetAnimated ? progress : 0)
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.secondary.opacity(0.2)).frame(height: 5)
                     Capsule().fill(value > budget ? Color.orange : accent).frame(width: width, height: 5)
                     Circle().fill(value > budget ? Color.orange : accent).frame(width: 10, height: 10).offset(x: min(max(width - 5, 0), max(geometry.size.width - 10, 0)))
                 }.frame(maxHeight: .infinity)
             }.frame(height: 14)
-            Text("预算 \(moneyText(Decimal(budget))) · 已支出 \(moneyText(spent))").font(.caption).foregroundStyle(.secondary)
+            Text("预算 \(moneyText(Decimal(budget))) · 已支出 \(moneyText(spent)) · \((value / budget * 100).formatted(.number.precision(.fractionLength(0...1))))%")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
     private var abilityCard: some View {
         card {
             HStack { Text("收支能力").font(.headline); Spacer(); Picker("收支", selection: $showIncome) { Text("支出").tag(false); Text("收入").tag(true) }.pickerStyle(.segmented).frame(width: 125) }
-            if categories.isEmpty { Text(showIncome ? "本月暂无收入" : "本月暂无支出").font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 35) }
-            else {
-                RadarChart(values: categories.map(\.value), animated: animated).frame(height: 160).padding(.vertical, 8).accessibilityHidden(true)
-                ForEach(categories, id: \.name) { item in HStack { Text(item.name); Spacer(); Text(moneyText(Decimal(item.value))).monospacedDigit() }.font(.subheadline) }
-            }
+            RadarChart(values: categories.map(\.value), animated: radarAnimated).frame(height: 160).padding(.vertical, 8).accessibilityHidden(true)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: categories.map(\.value))
+            VStack(alignment: .leading, spacing: 14) {
+                if categories.isEmpty { Text(showIncome ? "本月暂无收入" : "本月暂无支出").foregroundStyle(.secondary) }
+                else { ForEach(categories, id: \.name) { item in HStack { Text(item.name); Spacer(); Text(moneyText(Decimal(item.value))).monospacedDigit() } } }
+            }.font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
+                .id(showIncome).transition(.opacity)
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: showIncome)
     }
     private func animateValues() {
-        animated = false
-        guard !reduceMotion else { animated = true; return }
-        DispatchQueue.main.async { withAnimation(.easeOut(duration: 0.6)) { animated = true } }
+        dailyAnimated = false; budgetAnimated = false; radarAnimated = false
+        guard !reduceMotion else { dailyAnimated = true; budgetAnimated = true; radarAnimated = true; return }
+        DispatchQueue.main.async { withAnimation(.easeInOut(duration: 0.6)) { dailyAnimated = true; budgetAnimated = true; radarAnimated = true } }
     }
     private func shift(_ n: Int) { if let next = Calendar.current.date(byAdding: .month, value: n, to: month) { month = next; selectedDay = nil; animateValues() } }
 }
@@ -553,12 +582,13 @@ private struct RadarChart: View {
         GeometryReader { geometry in
             let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
             let radius = min(geometry.size.width, geometry.size.height) * 0.44
-            let count = max(values.count, 3)
+            let count = 5
             let maximum = max(values.max() ?? 0, 1)
             ZStack {
                 ForEach(1...3, id: \.self) { ring in polygon(center: center, radius: radius * CGFloat(ring) / 3, count: count).stroke(Color.secondary.opacity(0.2), lineWidth: 1) }
-                dataPath(center: center, radius: radius, count: count, maximum: maximum).fill(accent.opacity(0.22))
-                dataPath(center: center, radius: radius, count: count, maximum: maximum).stroke(accent, lineWidth: 2)
+                let fractions = (0..<5).map { $0 < values.count && animated ? values[$0] / maximum : 0 }
+                RadarShape(fractions: fractions).fill(accent.opacity(0.22))
+                RadarShape(fractions: fractions).stroke(accent, lineWidth: 2)
                 ForEach(Array(values.enumerated()), id: \.offset) { index, value in
                     let p = point(center, radius, index, count, animated ? value / maximum : 0)
                     Circle().fill(accent).frame(width: 7, height: 7).position(p)
@@ -573,10 +603,22 @@ private struct RadarChart: View {
     private func polygon(center: CGPoint, radius: CGFloat, count: Int) -> Path {
         Path { path in for index in 0..<count { let p = point(center, radius, index, count, 1); if index == 0 { path.move(to: p) } else { path.addLine(to: p) } }; path.closeSubpath() }
     }
-    private func dataPath(center: CGPoint, radius: CGFloat, count: Int, maximum: Double) -> Path {
-        Path { path in
-            for index in 0..<count {
-                let p = point(center, radius, index, count, index < values.count && animated ? values[index] / maximum : 0)
+}
+
+private struct RadarShape: Shape {
+    var a: Double; var b: Double; var c: Double; var d: Double; var e: Double
+    init(fractions: [Double]) { a = fractions[0]; b = fractions[1]; c = fractions[2]; d = fractions[3]; e = fractions[4] }
+    var animatableData: AnimatablePair<AnimatablePair<Double, Double>, AnimatablePair<Double, AnimatablePair<Double, Double>>> {
+        get { .init(.init(a, b), .init(c, .init(d, e))) }
+        set { a = newValue.first.first; b = newValue.first.second; c = newValue.second.first; d = newValue.second.second.first; e = newValue.second.second.second }
+    }
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY), radius = min(rect.width, rect.height) * 0.44
+        let values = [a, b, c, d, e]
+        return Path { path in
+            for index in 0..<5 {
+                let angle = 2 * Double.pi * Double(index) / 5 - .pi / 2
+                let p = CGPoint(x: center.x + radius * CGFloat(cos(angle) * values[index]), y: center.y + radius * CGFloat(sin(angle) * values[index]))
                 if index == 0 { path.move(to: p) } else { path.addLine(to: p) }
             }
             path.closeSubpath()
