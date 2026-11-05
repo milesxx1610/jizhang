@@ -208,6 +208,9 @@ private final class LedgerTabTransition: NSObject, UIViewControllerAnimatedTrans
             return
         }
         let container = context.containerView
+        // The scaled pages can briefly expose the transition container at the edges.
+        // Use the same dynamic background as the pages, including in dark mode.
+        container.backgroundColor = .systemGroupedBackground
         let originalToTransform = to.transform
         self.context = context
         fromView = from
@@ -252,9 +255,24 @@ struct SoftTopScrollEdge: ViewModifier {
     }
 }
 
+// Let the system choose the transition for the details navigation bar.
+// Kept separate from the other tabs so this experiment is easy to compare.
+private struct AutomaticTopScrollEdge: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) { content.scrollEdgeEffectStyle(.automatic, for: .top) }
+        else { content }
+    }
+}
+
 private struct SearchPullOffsetKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+// Scroll offsets are read by the pull gesture but do not need to redraw the
+// entire dashboard for every pixel of scrolling.
+private final class DetailScrollPosition: ObservableObject {
+    var offset: CGFloat = 0
 }
 
 private struct Dashboard: View {
@@ -265,15 +283,17 @@ private struct Dashboard: View {
     @State private var deleting: Entry?
     @State private var search = ""
     @State private var showSearch = false
-    @State private var detailScrollOffset: CGFloat = 0
+    @StateObject private var detailScrollPosition = DetailScrollPosition()
     @State private var pullStartedAtTop: Bool?
     @State private var searchGestureHandled = false
     @FocusState private var searchFocused: Bool
     @AppStorage("monthlyBudget") private var budget = 0.0
     private var items: [Entry] { monthItems(ledger.entries, month) }
     private var visible: [Entry] { search.isEmpty ? items : items.filter { [$0.category, $0.note, $0.detail ?? "", $0.platform ?? "", $0.merchant ?? "", $0.payment ?? ""].contains { $0.localizedCaseInsensitiveContains(search) } } }
-    private var days: [Date] { Array(Set(visible.map { Calendar.current.startOfDay(for: $0.date) })).sorted(by: >) }
     var body: some View {
+        let visibleEntries = visible
+        let entriesByDay = Dictionary(grouping: visibleEntries) { Calendar.current.startOfDay(for: $0.date) }
+        let days = entriesByDay.keys.sorted(by: >)
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
@@ -294,8 +314,8 @@ private struct Dashboard: View {
                     if items.contains(where: { $0.cnyAmount == nil }) { Text("部分外币账目缺少汇率，未计入人民币汇总。请编辑并重新保存。") .font(.footnote).foregroundStyle(.orange) }
                     summary
                     if budget > 0 { budgetCard }
-                    HStack(alignment: .firstTextBaseline) { Text("账目明细").font(.title3.bold()); Spacer(); Text("\(visible.count) 笔").font(.subheadline).foregroundStyle(.secondary) }
-                    if visible.isEmpty {
+                    HStack(alignment: .firstTextBaseline) { Text("账目明细").font(.title3.bold()); Spacer(); Text("\(visibleEntries.count) 笔").font(.subheadline).foregroundStyle(.secondary) }
+                    if visibleEntries.isEmpty {
                         ContentUnavailableView(search.isEmpty ? "还没有账目" : "没有找到结果", systemImage: search.isEmpty ? "tray" : "magnifyingglass", description: Text(search.isEmpty ? "点击底部记账按钮记录收支" : "试试其他关键词"))
                     } else {
                         LazyVStack(alignment: .leading, spacing: 20) {
@@ -303,10 +323,10 @@ private struct Dashboard: View {
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text(day, format: .dateTime.month().day().weekday(.wide)).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                                     VStack(spacing: 0) {
-                                        ForEach(visible.filter { Calendar.current.isDate($0.date, inSameDayAs: day) }) { entry in
+                                        ForEach(entriesByDay[day] ?? []) { entry in
                                             Button { target = EditorTarget(entry: entry) } label: { EntryRow(entry: entry) }.buttonStyle(.plain)
                                                 .contextMenu { Button("编辑") { target = EditorTarget(entry: entry) }; Button("删除", role: .destructive) { deleting = entry } }
-                                            if entry.id != visible.filter({ Calendar.current.isDate($0.date, inSameDayAs: day) }).last?.id { Divider().padding(.leading, 64) }
+                                            if entry.id != entriesByDay[day]?.last?.id { Divider().padding(.leading, 64) }
                                         }
                                     }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
                                 }
@@ -322,16 +342,16 @@ private struct Dashboard: View {
                     })
                     .modifier(TabArrival(selected: selected, tab: 0, showsBackground: false))
             }
-            .modifier(SoftTopScrollEdge())
+            .modifier(AutomaticTopScrollEdge())
             .scrollBounceBehavior(.always, axes: .vertical)
             .scrollDismissesKeyboard(.interactively)
             .coordinateSpace(name: "detail-scroll")
             .onPreferenceChange(SearchPullOffsetKey.self) { offset in
-                detailScrollOffset = offset
+                detailScrollPosition.offset = offset
             }
             .simultaneousGesture(DragGesture(minimumDistance: 10)
                 .onChanged { value in
-                    if pullStartedAtTop == nil { pullStartedAtTop = detailScrollOffset >= -1 }
+                    if pullStartedAtTop == nil { pullStartedAtTop = detailScrollPosition.offset >= -1 }
                     guard !searchGestureHandled,
                           abs(value.translation.height) > abs(value.translation.width) else { return }
                     if showSearch && value.translation.height < -25 {
