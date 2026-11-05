@@ -498,13 +498,13 @@ private struct Insights: View {
     private var summaryCard: some View {
         card {
             Text("本月支出").font(.subheadline).foregroundStyle(.secondary)
-            Text(moneyText(spent)).font(.system(size: 34, weight: .bold, design: .rounded)).lineLimit(1).minimumScaleFactor(0.6)
+            Text(moneyText(spent)).contentTransition(.numericText()).font(.system(size: 34, weight: .bold, design: .rounded)).lineLimit(1).minimumScaleFactor(0.6)
             Divider()
             HStack { metric("收入", earned); Spacer(); metric("收支结余", earned - spent) }
-        }
+        }.animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: month)
     }
     private func metric(_ label: String, _ value: Decimal) -> some View {
-        VStack(alignment: .leading, spacing: 5) { Text(label).font(.caption).foregroundStyle(.secondary); Text(moneyText(value)).font(.headline).lineLimit(1).minimumScaleFactor(0.6) }
+        VStack(alignment: .leading, spacing: 5) { Text(label).font(.caption).foregroundStyle(.secondary); Text(moneyText(value)).contentTransition(.numericText()).font(.headline).lineLimit(1).minimumScaleFactor(0.6) }
     }
     private var dailyCard: some View {
         card {
@@ -531,17 +531,25 @@ private struct Insights: View {
                                         UISelectionFeedbackGenerator().selectionChanged()
                                     })
                             }
-                        }.id("daily-chart")
-                }.onAppear { if Calendar.current.isDate(month, equalTo: Date(), toGranularity: .month) { proxy.scrollTo("daily-chart", anchor: .trailing) } }
+                        }.overlay(alignment: .topLeading) {
+                            HStack(spacing: 0) { ForEach(1...dayCount, id: \.self) { day in Color.clear.frame(width: 32, height: 1).id(day) } }.allowsHitTesting(false)
+                        }
+                }.onAppear {
+                    let day = Calendar.current.isDate(month, equalTo: Date(), toGranularity: .month) ? Calendar.current.component(.day, from: Date()) : 1
+                    DispatchQueue.main.async { proxy.scrollTo(day, anchor: .center) }
+                }.onChange(of: selected) { _, value in
+                    guard value == 2 else { return }
+                    let day = Calendar.current.isDate(month, equalTo: Date(), toGranularity: .month) ? Calendar.current.component(.day, from: Date()) : 1
+                    proxy.scrollTo(day, anchor: .center)
+                }
             }.id(Calendar.current.dateComponents([.year, .month], from: month))
-            if !items.contains(where: { !$0.income && $0.cnyAmount != nil }) { Text("本月暂无支出").font(.caption).foregroundStyle(.secondary) }
         }
     }
     private var budgetCard: some View {
         let value = (spent as NSDecimalNumber).doubleValue
         let progress = min(max(value / budget, 0), 1)
         return card {
-            HStack { Label("月度预算", systemImage: "wallet.pass").font(.headline); Spacer(); Text(value > budget ? "超支" : "剩余").foregroundStyle(.secondary).font(.caption); Text(moneyText(Decimal(abs(budget - value)))).font(.subheadline.bold()) }
+            HStack { Label("月度预算", systemImage: "wallet.pass").font(.headline); Spacer(); Text(value > budget ? "超支" : "剩余").foregroundStyle(.secondary).font(.caption); Text(moneyText(Decimal(abs(budget - value)))).contentTransition(.numericText()).font(.subheadline.bold()) }
             GeometryReader { geometry in
                 let width = geometry.size.width * (budgetAnimated ? progress : 0)
                 ZStack(alignment: .leading) {
@@ -551,13 +559,13 @@ private struct Insights: View {
                 }.frame(maxHeight: .infinity)
             }.frame(height: 14)
             Text("预算 \(moneyText(Decimal(budget))) · 已支出 \(moneyText(spent)) · \((value / budget * 100).formatted(.number.precision(.fractionLength(0...1))))%")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }
+                .contentTransition(.numericText()).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }.animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: month)
     }
     private var abilityCard: some View {
         card {
             HStack { Text("收支能力").font(.headline); Spacer(); Picker("收支", selection: $showIncome) { Text("支出").tag(false); Text("收入").tag(true) }.pickerStyle(.segmented).frame(width: 125) }
-            RadarChart(values: categories.map(\.value), animated: radarAnimated).frame(height: 160).padding(.vertical, 8).accessibilityHidden(true)
+            RadarChart(values: categories.map(\.value), animated: radarAnimated).frame(height: 240).padding(.vertical, 8).accessibilityHidden(true)
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: categories.map(\.value))
             VStack(alignment: .leading, spacing: 14) {
                 if categories.isEmpty { Text(showIncome ? "本月暂无收入" : "本月暂无支出").foregroundStyle(.secondary) }

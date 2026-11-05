@@ -80,6 +80,7 @@ struct EntryEditor: View {
     @State private var keyboardVisible = false
     @State private var holdDetailFieldUntilKeyboardHides = false
     @State private var holdPlatformFieldUntilKeyboardHides = false
+    @State private var suppressDetailLabelAnimation = false
     @State private var originalDateChanged = false
     @State private var deleteName: String?
     @State private var deleteKind = ""
@@ -183,10 +184,11 @@ struct EntryEditor: View {
                                     HStack { ForEach(detailOptions, id: \.self) { item in Button {
                                         if keyboardVisible && !detailOptions.contains(detail) {
                                             holdDetailFieldUntilKeyboardHides = true
+                                            suppressDetailLabelAnimation = true
                                             dismissKeyboard()
                                         }
                                         detail = detail == item ? "" : item; selectionFeedback()
-                                    } label: { Text("\(detailEmoji(item)) \(item)").transaction { if detailFocused || holdDetailFieldUntilKeyboardHides { $0.animation = nil } } }.buttonStyle(.bordered).tint(detail == item ? selectionColor : .secondary).contextMenu { Button("删除细分", role: .destructive) { deleteKind = "detail"; deleteName = item } } } }.padding(.horizontal, 20)
+                                    } label: { Text("\(detailEmoji(item)) \(item)").transaction { if detailFocused || suppressDetailLabelAnimation { $0.animation = nil } } }.buttonStyle(.bordered).tint(detail == item ? selectionColor : .secondary).contextMenu { Button("删除细分", role: .destructive) { deleteKind = "detail"; deleteName = item } } } }.padding(.horizontal, 20)
                                 }.padding(.horizontal, -20)
                             }
                             if !detailOptions.contains(detail) || holdDetailFieldUntilKeyboardHides {
@@ -240,10 +242,19 @@ struct EntryEditor: View {
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+                    keyboardVisible = false
+                    let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+                    DispatchQueue.main.asyncAfter(deadline: .now() + max(0, duration - 0.05)) {
+                        guard !keyboardVisible else { return }
+                        holdDetailFieldUntilKeyboardHides = false
+                        holdPlatformFieldUntilKeyboardHides = false
+                    }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
                     holdDetailFieldUntilKeyboardHides = false
                     holdPlatformFieldUntilKeyboardHides = false
+                    suppressDetailLabelAnimation = false
                 }
                 .navigationTitle(embedded ? "记账" : (entry == nil ? "记一笔" : "编辑账目"))
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
