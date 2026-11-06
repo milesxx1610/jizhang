@@ -579,7 +579,12 @@ private struct Insights: View {
     private func animateValues() {
         dailyAnimated = false; budgetAnimated = false; radarAnimated = false
         guard !reduceMotion else { dailyAnimated = true; budgetAnimated = true; radarAnimated = true; return }
-        DispatchQueue.main.async { withAnimation(.easeInOut(duration: 0.6)) { dailyAnimated = true; budgetAnimated = true; radarAnimated = true } }
+        let fraction = budget > 0 ? min(max((spent as NSDecimalNumber).doubleValue / budget, 0), 1) : 0
+        let budgetDuration = 0.4 + 0.4 * sqrt(fraction)
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.6)) { dailyAnimated = true; radarAnimated = true }
+            withAnimation(.timingCurve(0.22, 0.0, 0.2, 1.0, duration: budgetDuration)) { budgetAnimated = true }
+        }
     }
     private func shift(_ n: Int) { if let next = Calendar.current.date(byAdding: .month, value: n, to: month) { month = next; selectedDay = nil; animateValues() } }
 }
@@ -668,7 +673,7 @@ private struct Preferences: View {
                     Button { importing = true } label: { Label("导入备份", systemImage: "square.and.arrow.down") }
                     NavigationLink { BackupInformation() } label: { Label("备份说明", systemImage: "info.circle") }
                 }
-                Section("关于") { LabeledContent("版本", value: "1.0") }
+                Section("关于") { LabeledContent("版本", value: "1.1") }
             }.navigationTitle("设置")
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
                 .fileExporter(isPresented: $exporting, document: document, contentType: .json, defaultFilename: "记账备份") { result in if case .failure = result { ledger.error = "导出失败，请重试。" } }
