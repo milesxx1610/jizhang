@@ -50,12 +50,11 @@ private struct QuickEntryControl: ControlWidget {
 private struct SummaryEntry: TimelineEntry {
     let date: Date
     let totals: MonthlyTotals?
-    let hidden: Bool
 }
 
 private struct SummaryProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> SummaryEntry {
-        SummaryEntry(date: .now, totals: MonthlyTotals(income: 4000, expense: 2400), hidden: false)
+        SummaryEntry(date: .now, totals: MonthlyTotals(income: 4000, expense: 2400))
     }
     func snapshot(for configuration: SummaryConfiguration, in context: Context) async -> SummaryEntry {
         entry(configuration)
@@ -71,38 +70,18 @@ private struct SummaryProvider: AppIntentTimelineProvider {
               let shared = widgetSharedDefaults(),
               let data = shared.data(forKey: "monthlyTotals"),
               let totals = try? JSONDecoder().decode([String: MonthlyTotals].self, from: data) else {
-            return SummaryEntry(date: date, totals: nil, hidden: configuration.hideAmounts)
+            return SummaryEntry(date: date, totals: nil)
         }
         let monthly = totals["\(year)-\(month)"] ?? MonthlyTotals(income: 0, expense: 0)
-        return SummaryEntry(date: date, totals: monthly.incomplete ? nil : monthly, hidden: configuration.hideAmounts)
+        return SummaryEntry(date: date, totals: monthly.incomplete ? nil : monthly)
     }
 }
 
 private struct MonthlySummaryWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "MonthlySummary", intent: SummaryConfiguration.self, provider: SummaryProvider()) { entry in
-            HStack(spacing: 14) {
-                ZStack {
-                    Circle().stroke(Color.secondary.opacity(0.15), lineWidth: 8)
-                    if let values = entry.totals, !entry.hidden, values.income > 0 {
-                        Circle().trim(from: 0, to: min(values.expense / values.income, 1))
-                            .stroke(Color(red: 0.12, green: 0.52, blue: 0.44), style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                    }
-                    Text(percent(entry)).font(.system(size: 23, weight: .semibold, design: .rounded)).minimumScaleFactor(0.6).lineLimit(1)
-                }
-                .aspectRatio(1, contentMode: .fit)
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("本月收支").font(.headline).lineLimit(1).minimumScaleFactor(0.7)
-                    if let totals = entry.totals {
-                        row("支出", totals.expense, hidden: entry.hidden)
-                        row("收入", totals.income, hidden: entry.hidden)
-                        row("结余", totals.income - totals.expense, hidden: entry.hidden)
-                    } else {
-                        Text("打开 App 更新数据").font(.caption).foregroundStyle(.secondary)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
+            MonthlySummaryView(entry: entry)
+            .privacySensitive()
             .containerBackground(for: .widget) { Color(uiColor: .secondarySystemBackground) }
             .widgetURL(URL(string: "simpleledger://summary"))
         }
@@ -110,18 +89,53 @@ private struct MonthlySummaryWidget: Widget {
         .description("查看本月收支与结余。")
         .supportedFamilies([.systemMedium])
     }
-    private func percent(_ entry: SummaryEntry) -> String {
-        guard !entry.hidden else { return "****" }
+}
+
+private struct MonthlySummaryView: View {
+    @Environment(\.redactionReasons) private var redactionReasons
+    let entry: SummaryEntry
+    private let accent = Color(red: 0.12, green: 0.52, blue: 0.44)
+
+    var body: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle().stroke(Color.secondary.opacity(0.14), lineWidth: 14)
+                    if let values = entry.totals, values.income > 0, !redactionReasons.contains(.privacy) {
+                        Circle().trim(from: 0, to: min(values.expense / values.income, 1))
+                            .stroke(accent, style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                    }
+                    Text(percent).font(.system(size: 27, weight: .semibold, design: .rounded))
+                        .lineLimit(1).minimumScaleFactor(0.55).privacySensitive()
+                }
+                .frame(width: min(geometry.size.height - 18, geometry.size.width * 0.39),
+                       height: min(geometry.size.height - 18, geometry.size.width * 0.39))
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("本月收支").font(.headline).lineLimit(1).minimumScaleFactor(0.8)
+                    if let totals = entry.totals {
+                        row("支出", totals.expense)
+                        row("收入", totals.income)
+                        row("结余", totals.income - totals.expense)
+                    } else {
+                        Text("打开 App 更新数据").font(.caption).foregroundStyle(.secondary)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+    private var percent: String {
         guard let totals = entry.totals, totals.income > 0 else { return "—" }
         return (totals.expense / totals.income).formatted(.percent.precision(.fractionLength(0)))
     }
-    private func row(_ title: String, _ amount: Double, hidden: Bool) -> some View {
-        HStack(spacing: 4) {
+    private func row(_ title: String, _ amount: Double) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(title).foregroundStyle(.secondary)
             Spacer(minLength: 0)
-            Text(hidden ? "****" : amount.formatted(.currency(code: "CNY").precision(.fractionLength(2))))
-                .lineLimit(1).minimumScaleFactor(0.55)
-        }.font(.caption)
+            Text(amount.formatted(.currency(code: "CNY").locale(Locale(identifier: "zh_CN")).precision(.fractionLength(2))))
+                .fontWeight(.medium).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.5).privacySensitive()
+        }.font(.system(size: 12))
     }
 }
 
