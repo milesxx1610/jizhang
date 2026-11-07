@@ -10,7 +10,15 @@ targets:
       - MoneyApp.swift
       - LedgerTabs.swift
       - EntryEditor.swift
+      - QuickEntryIntent.swift
       - Assets.xcassets
+    dependencies:
+      - target: LedgerWidget
+    info:
+      path: Generated/App-Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [simpleledger]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.miles1610.simpleledger
@@ -21,5 +29,27 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: 记账
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+  LedgerWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - LedgerWidget.swift
+      - QuickEntryIntent.swift
+    info:
+      path: Generated/Widget-Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.miles1610.simpleledger.widget
+        PRODUCT_NAME: LedgerWidget
+        MARKETING_VERSION: "1.1"
+        CURRENT_PROJECT_VERSION: "2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: 快速记账
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WIDGET_EXTENSION"
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"

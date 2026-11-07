@@ -32,10 +32,21 @@ struct LedgerTabs: View {
             .ignoresSafeArea(.container, edges: [.top, .bottom])
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .onOpenURL { url in
+                if url.scheme == "simpleledger", url.host == "add" { selected = 1 }
+            }
+            .onAppear { openPendingEntry() }
+            .onReceive(NotificationCenter.default.publisher(for: .openLedgerEntry)) { _ in openPendingEntry() }
             .sheet(item: $target) { EntryEditor(entry: $0.entry).environmentObject(ledger).tint(accent) }
             .alert("提示", isPresented: Binding(get: { ledger.error != nil }, set: { if !$0 { ledger.error = nil } })) {
                 Button("知道了") { ledger.error = nil }
             } message: { Text(ledger.error ?? "") }
+    }
+
+    private func openPendingEntry() {
+        guard UserDefaults.standard.bool(forKey: "pendingQuickEntry") else { return }
+        UserDefaults.standard.removeObject(forKey: "pendingQuickEntry")
+        selected = 1
     }
 }
 

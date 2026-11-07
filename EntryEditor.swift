@@ -1,10 +1,47 @@
 import SwiftUI
 
-struct CategoryItem: Codable, Identifiable, Equatable {
+struct CategoryItem: Codable, Identifiable, Hashable {
     var name: String
     var emoji: String
     var income: Bool
     var id: String { "\(income)-\(name)" }
+}
+
+private struct CategorySortRequest: Identifiable {
+    let id = UUID()
+    let items: [CategoryItem]
+}
+
+private struct OptionSortRequest: Identifiable {
+    let id = UUID()
+    let key: String
+    let items: [String]
+    let labels: [String: String]
+}
+
+private struct SortList<Item: Hashable>: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var items: [Item]
+    let label: (Item) -> String
+    let save: ([Item]) -> Void
+
+    init(items: [Item], label: @escaping (Item) -> String, save: @escaping ([Item]) -> Void) {
+        _items = State(initialValue: items)
+        self.label = label
+        self.save = save
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(items, id: \.self) { item in Text(label(item)) }
+                    .onMove { items.move(fromOffsets: $0, toOffset: $1) }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("调整顺序")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { save(items); dismiss() } } }
+        }
+    }
 }
 
 let expenseCategories: [CategoryItem] = [
@@ -56,18 +93,15 @@ struct EntryEditor: View {
     @State private var showAllCategories = false
     @State private var error: String?
     @State private var showCustom = false
-    @State private var showSort = false
+    @State private var categorySort: CategorySortRequest?
     @State private var showCurrency = false
     @State private var viewportBottom: CGFloat = 0
     @State private var optionsBottom: CGFloat = 0
-    @State private var showOptionSort = false
+    @State private var optionSort: OptionSortRequest?
     @State private var showCustomOption = false
     @State private var customOptionKind = ""
-    @State private var optionSortKind = ""
-    @State private var optionSortItems: [String] = []
     @Namespace private var typeSelection
     @State private var typeDrag: CGFloat = 0
-    @State private var sortedItems: [CategoryItem] = []
     @State private var previewRate: Decimal?
     @State private var previewKey = ""
     @State private var previewDate: String?
@@ -260,8 +294,8 @@ struct EntryEditor: View {
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
                 .toolbar { if !embedded { ToolbarItem(placement: .confirmationAction) { Button("取消") { dismiss() } } } }
                 .task(id: rateKey) { await loadPreviewRate() }
-                .sheet(isPresented: $showSort) { sortSheet }
-                .sheet(isPresented: $showOptionSort) { optionSortSheet }
+                .sheet(item: $categorySort) { request in categorySortSheet(request) }
+                .sheet(item: $optionSort) { request in optionSortSheet(request) }
                 .sheet(isPresented: $showCustomOption) { customOptionSheet }
                 .sheet(isPresented: $showCustom) {
                     NavigationStack {
@@ -337,7 +371,7 @@ struct EntryEditor: View {
     private var categoryMenu: some View {
         Menu {
             Button { customName = ""; customEmoji = ""; showCustom = true } label: { Label("自定义分类", systemImage: "plus.circle") }
-            Button { sortedItems = categories; showSort = true } label: { Label("调整分类顺序", systemImage: "line.3.horizontal") }
+            Button { categorySort = CategorySortRequest(items: categories) } label: { Label("调整分类顺序", systemImage: "line.3.horizontal") }
             if hiddenCategories.contains(where: { $0.hasPrefix("\(income)-") }) { Button("恢复已删除分类") { restoreCategories() } }
             Divider()
             ForEach(categories) { item in
@@ -361,20 +395,21 @@ struct EntryEditor: View {
         NavigationStack {
             List {
                 Button { customName = ""; customEmoji = ""; showAllCategories = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showCustom = true } } label: { Label("自定义分类", systemImage: "plus.circle") }
-                Button { sortedItems = categories; showSort = true } label: { Label("调整分类顺序", systemImage: "line.3.horizontal") }
+                Button { categorySort = CategorySortRequest(items: categories) } label: { Label("调整分类顺序", systemImage: "line.3.horizontal") }
                 ForEach(categories) { item in
                     Button { if category == item.name { category = "" } else { category = item.name }; detail = ""; merchant = ""; showAllCategories = false } label: { HStack { Text(item.emoji); Text(item.name); Spacer(); if category == item.name { Image(systemName: "checkmark").foregroundStyle(selectionColor) } } }
                         .contextMenu { Button("删除分类", role: .destructive) { deleteKind = "category"; deleteName = item.name } }
                 }
             }.navigationTitle("全部分类").toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showAllCategories = false } } }
-            .sheet(isPresented: $showSort) { sortSheet }
+            .sheet(item: $categorySort) { request in categorySortSheet(request) }
         }.presentationDetents([.medium, .large])
     }
-    private var sortSheet: some View {
-        NavigationStack {
-            List { ForEach(sortedItems) { item in HStack { Text(item.emoji); Text(item.name) } }.onMove { sortedItems.move(fromOffsets: $0, toOffset: $1) } }
-                .environment(\.editMode, .constant(.active)).navigationTitle("调整顺序")
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { let ids = sortedItems.map(\.id); let old = (try? JSONDecoder().decode([String].self, from: Data(categoryOrder.utf8))) ?? []; let merged = ids + old.filter { !ids.contains($0) }; if let data = try? JSONEncoder().encode(merged), let string = String(data: data, encoding: .utf8) { categoryOrder = string }; showSort = false } } }
+    private func categorySortSheet(_ request: CategorySortRequest) -> some View {
+        SortList(items: request.items, label: { "\($0.emoji)  \($0.name)" }) { items in
+            let ids = items.map(\.id)
+            let old = (try? JSONDecoder().decode([String].self, from: Data(categoryOrder.utf8))) ?? []
+            let merged = ids + old.filter { !ids.contains($0) }
+            if let data = try? JSONEncoder().encode(merged), let text = String(data: data, encoding: .utf8) { categoryOrder = text }
         }
     }
     private var iconInput: some View {
@@ -424,7 +459,12 @@ struct EntryEditor: View {
         let options = kind == "detail" ? detailOptions : allPlatforms
         return Menu {
             Button { customOptionKind = kind; customName = ""; customEmoji = ""; showCustomOption = true } label: { Label("自定义", systemImage: "plus.circle") }
-            Button { optionSortKind = kind; optionSortItems = options; showOptionSort = true } label: { Label("调整顺序", systemImage: "line.3.horizontal") }
+            Button {
+                let labels = Dictionary(options.map { item in
+                    (item, "\(kind == "detail" ? detailEmoji(item) : platformEmoji(item))  \(item)")
+                }, uniquingKeysWith: { first, _ in first })
+                optionSort = OptionSortRequest(key: optionsKey(kind + "Order"), items: options, labels: labels)
+            } label: { Label("调整顺序", systemImage: "line.3.horizontal") }
             if !savedOptions(kind + "Hidden").isEmpty { Button("恢复已删除选项") { setSavedOptions([], kind: kind + "Hidden") } }
             Divider()
             ForEach(options, id: \.self) { item in
@@ -489,16 +529,11 @@ struct EntryEditor: View {
         let icons = (try? JSONDecoder().decode([String: String].self, from: Data(customOptionEmojiJSON.utf8))) ?? [:]
         return icons[optionsKey(kind) + "-" + name]
     }
-    private var optionSortSheet: some View {
-        NavigationStack {
-            List { ForEach(optionSortItems, id: \.self) { item in Text("\(optionSortKind == "detail" ? detailEmoji(item) : platformEmoji(item))  \(item)") }.onMove { optionSortItems.move(fromOffsets: $0, toOffset: $1) } }
-                .environment(\.editMode, .constant(.active)).navigationTitle("调整顺序")
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") {
-                    var values = (try? JSONDecoder().decode([String: [String]].self, from: Data(customOptionsJSON.utf8))) ?? [:]
-                    values[optionsKey(optionSortKind + "Order")] = optionSortItems
-                    if let data = try? JSONEncoder().encode(values), let text = String(data: data, encoding: .utf8) { customOptionsJSON = text }
-                    showOptionSort = false
-                } } }
+    private func optionSortSheet(_ request: OptionSortRequest) -> some View {
+        SortList(items: request.items, label: { request.labels[$0] ?? $0 }) { items in
+            var values = (try? JSONDecoder().decode([String: [String]].self, from: Data(customOptionsJSON.utf8))) ?? [:]
+            values[request.key] = items
+            if let data = try? JSONEncoder().encode(values), let text = String(data: data, encoding: .utf8) { customOptionsJSON = text }
         }
     }
     private func orderedOptions(_ options: [String], kind: String) -> [String] {
