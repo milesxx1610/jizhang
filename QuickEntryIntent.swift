@@ -1,6 +1,11 @@
 import AppIntents
 import Foundation
 
+struct SummaryConfiguration: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "本月收支"
+    @Parameter(title: "隐藏金额", default: false) var hideAmounts: Bool
+}
+
 extension Notification.Name {
     static let openLedgerEntry = Notification.Name("openLedgerEntry")
 }
