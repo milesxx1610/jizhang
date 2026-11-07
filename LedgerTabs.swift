@@ -528,29 +528,31 @@ private struct Insights: View {
             HStack { Text("每日支出").font(.headline); Spacer(); if let day = selectedDay, (1...dayCount).contains(day) { Text("\(day)日 · \(moneyText(Decimal(daily(day))))").font(.caption).foregroundStyle(.secondary) } }
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
-                    Chart(1...dayCount, id: \.self) { day in
-                        RectangleMark(xStart: .value("开始", Double(day) - 0.25), xEnd: .value("结束", Double(day) + 0.25), yStart: .value("基线", 0.0), yEnd: .value("支出", dailyAnimated ? daily(day) : 0)).foregroundStyle(day == selectedDay ? accent : accent.opacity(0.65)).cornerRadius(3)
-                    }.chartXScale(domain: 0.0...Double(dayCount + 1))
-                        .chartYScale(domain: 0...max((1...dayCount).map { daily($0) }.max() ?? 0, 1))
-                        .chartXAxis { AxisMarks(values: (1...dayCount).map { Double($0) }) { value in AxisValueLabel(centered: false) { if let day = value.as(Double.self) { Text("\(Int(day))") } } } }
-                        .chartYAxis(.hidden).frame(width: CGFloat(dayCount) * 32, height: 130)
-                        .chartOverlay { chart in
-                            GeometryReader { geometry in
-                                Rectangle().fill(.clear).contentShape(Rectangle())
-                                    .gesture(SpatialTapGesture().onEnded { event in
-                                        guard let plotFrame = chart.plotFrame else { return }
-                                        let x = event.location.x - geometry[plotFrame].origin.x
-                                        guard x >= 0, x <= geometry[plotFrame].width,
-                                              let value: Double = chart.value(atX: x) else { return }
-                                        let day = Int(value.rounded())
-                                        guard (1...dayCount).contains(day), day != selectedDay else { return }
-                                        selectedDay = day
-                                        UISelectionFeedbackGenerator().selectionChanged()
-                                    })
+                    let maximum = max((1...dayCount).map { daily($0) }.max() ?? 0, 1)
+                    HStack(spacing: 0) {
+                        ForEach(1...dayCount, id: \.self) { day in
+                            VStack(spacing: 4) {
+                                VStack {
+                                    Spacer(minLength: 0)
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(day == selectedDay ? accent : accent.opacity(0.65))
+                                        .frame(width: 16, height: dailyAnimated ? 106 * CGFloat(max(daily(day), 0) / maximum) : 0)
+                                }.frame(height: 106)
+                                Text("\(day)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(height: 20)
                             }
-                        }.overlay(alignment: .topLeading) {
-                            HStack(spacing: 0) { ForEach(1...dayCount, id: \.self) { day in Color.clear.frame(width: 32, height: 1).id(day) } }.allowsHitTesting(false)
+                            .frame(width: 32, height: 130)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                guard day != selectedDay else { return }
+                                selectedDay = day
+                                UISelectionFeedbackGenerator().selectionChanged()
+                            }
+                            .id(day)
                         }
+                    }
                 }.onAppear {
                     let day = Calendar.current.isDate(month, equalTo: Date(), toGranularity: .month) ? Calendar.current.component(.day, from: Date()) : 1
                     DispatchQueue.main.async { proxy.scrollTo(day, anchor: .center) }
