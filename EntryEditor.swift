@@ -80,6 +80,7 @@ struct EntryEditor: View {
     let entry: Entry?
     let embedded: Bool
     let tabSelection: Int?
+    let quickEntryRequest: Int
     @State private var amount: String
     @State private var category: String
     @State private var note: String
@@ -147,8 +148,8 @@ struct EntryEditor: View {
     private let selectionColor = Color(red: 0.12, green: 0.52, blue: 0.44)
     private var rateKey: String { "\(currency)-\(Calendar.current.startOfDay(for: date).timeIntervalSince1970)" }
 
-    init(entry: Entry?, embedded: Bool = false, tabSelection: Int? = nil) {
-        self.entry = entry; self.embedded = embedded; self.tabSelection = tabSelection
+    init(entry: Entry?, embedded: Bool = false, tabSelection: Int? = nil, quickEntryRequest: Int = 0) {
+        self.entry = entry; self.embedded = embedded; self.tabSelection = tabSelection; self.quickEntryRequest = quickEntryRequest
         _amount = State(initialValue: entry.map { NSDecimalNumber(decimal: $0.amount).stringValue } ?? "")
         _category = State(initialValue: entry?.category ?? "")
         _note = State(initialValue: entry?.note ?? "")
@@ -294,6 +295,20 @@ struct EntryEditor: View {
                 .navigationBarTitleDisplayMode(embedded ? .large : .inline)
                 .toolbar { if !embedded { ToolbarItem(placement: .confirmationAction) { Button("取消") { dismiss() } } } }
                 .task(id: rateKey) { await loadPreviewRate() }
+                .onChange(of: quickEntryRequest) { _, value in
+                    guard embedded, value > 0 else { return }
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(350))
+                        amountFocused = true
+                    }
+                }
+                .onAppear {
+                    guard embedded, quickEntryRequest > 0 else { return }
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(350))
+                        amountFocused = true
+                    }
+                }
                 .sheet(item: $categorySort) { request in categorySortSheet(request) }
                 .sheet(item: $optionSort) { request in optionSortSheet(request) }
                 .sheet(isPresented: $showCustomOption) { customOptionSheet }

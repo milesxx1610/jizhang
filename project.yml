@@ -11,6 +11,7 @@ targets:
       - LedgerTabs.swift
       - EntryEditor.swift
       - QuickEntryIntent.swift
+      - WidgetData.swift
       - Assets.xcassets
     dependencies:
       - target: LedgerWidget
@@ -19,6 +20,10 @@ targets:
       properties:
         CFBundleURLTypes:
           - CFBundleURLSchemes: [simpleledger]
+    entitlements:
+      path: Generated/App.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.miles1610.simpleledger]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.miles1610.simpleledger
@@ -37,11 +42,16 @@ targets:
     sources:
       - LedgerWidget.swift
       - QuickEntryIntent.swift
+      - WidgetData.swift
     info:
       path: Generated/Widget-Info.plist
       properties:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Generated/Widget.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.miles1610.simpleledger]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.miles1610.simpleledger.widget

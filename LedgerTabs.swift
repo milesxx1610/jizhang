@@ -26,14 +26,17 @@ struct LedgerTabs: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var target: EditorTarget?
     @State private var selected = 1
+    @State private var quickEntryRequest = 0
 
     var body: some View {
-        NativeLedgerTabs(target: $target, selected: $selected, ledger: ledger, reduceMotion: reduceMotion)
+        NativeLedgerTabs(target: $target, selected: $selected, quickEntryRequest: quickEntryRequest, ledger: ledger, reduceMotion: reduceMotion)
             .ignoresSafeArea(.container, edges: [.top, .bottom])
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .onOpenURL { url in
-                if url.scheme == "simpleledger", url.host == "add" { selected = 1 }
+                guard url.scheme == "simpleledger" else { return }
+                if url.host == "add" { openQuickEntry() }
+                if url.host == "summary" { selected = 2 }
             }
             .onAppear { openPendingEntry() }
             .onReceive(NotificationCenter.default.publisher(for: .openLedgerEntry)) { _ in openPendingEntry() }
@@ -46,13 +49,15 @@ struct LedgerTabs: View {
     private func openPendingEntry() {
         guard UserDefaults.standard.bool(forKey: "pendingQuickEntry") else { return }
         UserDefaults.standard.removeObject(forKey: "pendingQuickEntry")
-        selected = 1
+        openQuickEntry()
     }
+    private func openQuickEntry() { selected = 1; quickEntryRequest += 1 }
 }
 
 private struct NativeLedgerTabs: UIViewControllerRepresentable {
     @Binding var target: EditorTarget?
     @Binding var selected: Int
+    let quickEntryRequest: Int
     let ledger: Ledger
     let reduceMotion: Bool
 
@@ -60,7 +65,7 @@ private struct NativeLedgerTabs: UIViewControllerRepresentable {
 
     private func pages() -> [AnyView] {
         [AnyView(Dashboard(target: $target, selected: selected).environmentObject(ledger).tint(accent)),
-         AnyView(EntryEditor(entry: nil, embedded: true, tabSelection: selected).environmentObject(ledger).tint(accent)),
+         AnyView(EntryEditor(entry: nil, embedded: true, tabSelection: selected, quickEntryRequest: quickEntryRequest).environmentObject(ledger).tint(accent)),
          AnyView(Insights(selected: selected).environmentObject(ledger).tint(accent))]
     }
 

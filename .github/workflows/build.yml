@@ -36,6 +36,11 @@ jobs:
           xcodebuild -project SimpleLedger.xcodeproj -scheme SimpleLedger -configuration Release -derivedDataPath "$RUNNER_TEMP/build" -destination 'generic/platform=iOS' build CODE_SIGNING_ALLOWED=NO
           mkdir -p "$RUNNER_TEMP/package/Payload"
           cp -R "$RUNNER_TEMP/build/Build/Products/Release-iphoneos/SimpleLedger.app" "$RUNNER_TEMP/package/Payload/"
+          APP="$RUNNER_TEMP/package/Payload/SimpleLedger.app"
+          codesign --force --sign - --entitlements Generated/Widget.entitlements "$APP/PlugIns/LedgerWidget.appex"
+          codesign --force --sign - --entitlements Generated/App.entitlements "$APP"
+          codesign -d --entitlements :- "$APP" 2>&1
+          codesign -d --entitlements :- "$APP/PlugIns/LedgerWidget.appex" 2>&1
           cd "$RUNNER_TEMP/package"
           zip -qr SimpleLedger-unsigned.ipa Payload
           unzip -t SimpleLedger-unsigned.ipa

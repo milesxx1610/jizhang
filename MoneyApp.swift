@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 
 struct Entry: Identifiable, Codable {
     var id = UUID()
@@ -74,9 +75,14 @@ struct LedgerBackup: Codable {
         if let icons = backup.customOptionEmoji { UserDefaults.standard.set(icons, forKey: "customOptionEmoji") }
     }
     init() {
-        guard FileManager.default.fileExists(atPath: file.path) else { return }
-        do { entries = try JSONDecoder().decode([Entry].self, from: Data(contentsOf: file)) }
-        catch { loadFailed = true; self.error = "账目读取失败。请勿删除 App，以免丢失数据。" }
+        guard FileManager.default.fileExists(atPath: file.path) else { publishWidgetData(); return }
+        do { entries = try JSONDecoder().decode([Entry].self, from: Data(contentsOf: file)); publishWidgetData() }
+        catch {
+            loadFailed = true
+            self.error = "账目读取失败。请勿删除 App，以免丢失数据。"
+            widgetSharedDefaults()?.removeObject(forKey: "monthlyTotals")
+            WidgetCenter.shared.reloadTimelines(ofKind: "MonthlySummary")
+        }
     }
     func save(_ updated: [Entry]) -> Bool {
         guard !loadFailed else { error = "账目读取失败，为保护原数据已停止保存。"; return false }
@@ -84,8 +90,30 @@ struct LedgerBackup: Codable {
             let data = try JSONEncoder().encode(updated)
             try data.write(to: file, options: .atomic)
             entries = updated
+            publishWidgetData()
             return true
         } catch { self.error = "保存失败，请重试。"; return false }
+    }
+    private func publishWidgetData() {
+        var totals: [String: MonthlyTotals] = [:]
+        let calendar = Calendar.current
+        for entry in entries {
+            let date = calendar.dateComponents([.year, .month], from: entry.date)
+            guard let year = date.year, let month = date.month else { continue }
+            let key = "\(year)-\(month)"
+            var value = totals[key] ?? MonthlyTotals(income: 0, expense: 0)
+            guard let amount = entry.cnyAmount else {
+                value.incomplete = true
+                totals[key] = value
+                continue
+            }
+            if entry.income { value.income += NSDecimalNumber(decimal: amount).doubleValue }
+            else { value.expense += NSDecimalNumber(decimal: amount).doubleValue }
+            totals[key] = value
+        }
+        guard let shared = widgetSharedDefaults(), let data = try? JSONEncoder().encode(totals) else { return }
+        shared.set(data, forKey: "monthlyTotals")
+        WidgetCenter.shared.reloadTimelines(ofKind: "MonthlySummary")
     }
 }
 
