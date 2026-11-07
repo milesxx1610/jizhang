@@ -532,7 +532,7 @@ private struct Insights: View {
                         BarMark(x: .value("日期", day), y: .value("支出", dailyAnimated ? daily(day) : 0), width: 16).foregroundStyle(day == selectedDay ? accent : accent.opacity(0.65)).cornerRadius(3)
                     }.chartXScale(domain: 0...(dayCount + 1))
                         .chartYScale(domain: 0...max((1...dayCount).map { daily($0) }.max() ?? 0, 1))
-                        .chartXAxis { AxisMarks(values: .stride(by: 1)) { AxisValueLabel() } }
+                        .chartXAxis { AxisMarks(values: Array(1...dayCount)) { AxisValueLabel(centered: false) } }
                         .chartYAxis(.hidden).frame(width: CGFloat(dayCount) * 32, height: 130)
                         .chartOverlay { chart in
                             GeometryReader { geometry in

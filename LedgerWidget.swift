@@ -81,7 +81,6 @@ private struct MonthlySummaryWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "MonthlySummary", intent: SummaryConfiguration.self, provider: SummaryProvider()) { entry in
             MonthlySummaryView(entry: entry)
-            .privacySensitive()
             .containerBackground(for: .widget) { Color(uiColor: .secondarySystemBackground) }
             .widgetURL(URL(string: "simpleledger://summary"))
         }
@@ -92,25 +91,16 @@ private struct MonthlySummaryWidget: Widget {
 }
 
 private struct MonthlySummaryView: View {
-    @Environment(\.redactionReasons) private var redactionReasons
     let entry: SummaryEntry
     private let accent = Color(red: 0.12, green: 0.52, blue: 0.44)
 
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 16) {
-                ZStack {
-                    Circle().stroke(Color.secondary.opacity(0.14), lineWidth: 14)
-                    if let values = entry.totals, values.income > 0, !redactionReasons.contains(.privacy) {
-                        Circle().trim(from: 0, to: min(values.expense / values.income, 1))
-                            .stroke(accent, style: StrokeStyle(lineWidth: 14, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                    }
-                    Text(percent).font(.system(size: 27, weight: .semibold, design: .rounded))
-                        .lineLimit(1).minimumScaleFactor(0.55).privacySensitive()
-                }
-                .frame(width: min(geometry.size.height - 18, geometry.size.width * 0.39),
-                       height: min(geometry.size.height - 18, geometry.size.width * 0.39))
+                SummaryRing(entry: entry)
+                    .privacySensitive()
+                    .frame(width: max(0, min(geometry.size.height - 18, geometry.size.width * 0.39)) * 0.84,
+                           height: max(0, min(geometry.size.height - 18, geometry.size.width * 0.39)) * 0.84)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("本月收支").font(.headline).lineLimit(1).minimumScaleFactor(0.8)
                     if let totals = entry.totals {
@@ -124,10 +114,6 @@ private struct MonthlySummaryView: View {
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
-    private var percent: String {
-        guard let totals = entry.totals, totals.income > 0 else { return "—" }
-        return (totals.expense / totals.income).formatted(.percent.precision(.fractionLength(0)))
-    }
     private func row(_ title: String, _ amount: Double) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(title).foregroundStyle(.secondary)
@@ -136,6 +122,31 @@ private struct MonthlySummaryView: View {
                 .fontWeight(.medium).monospacedDigit()
                 .lineLimit(1).minimumScaleFactor(0.5).privacySensitive()
         }.font(.system(size: 12))
+    }
+}
+
+private struct SummaryRing: View {
+    @Environment(\.redactionReasons) private var redactionReasons
+    let entry: SummaryEntry
+    private let accent = Color(red: 0.12, green: 0.52, blue: 0.44)
+    var body: some View {
+        GeometryReader { geometry in
+            let lineWidth = min(geometry.size.width, geometry.size.height) * 0.12
+            ZStack {
+                Circle().stroke(Color.secondary.opacity(0.14), lineWidth: lineWidth)
+                if let values = entry.totals, values.income > 0, !redactionReasons.contains(.privacy) {
+                    Circle().trim(from: 0, to: min(values.expense / values.income, 1))
+                        .stroke(accent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                Text(percent).font(.system(size: 27, weight: .semibold, design: .rounded))
+                    .lineLimit(1).minimumScaleFactor(0.55).privacySensitive()
+            }.padding(lineWidth / 2)
+        }
+    }
+    private var percent: String {
+        guard let totals = entry.totals, totals.income > 0 else { return "—" }
+        return (totals.expense / totals.income).formatted(.percent.precision(.fractionLength(0)))
     }
 }
 
