@@ -113,6 +113,7 @@ struct EntryEditor: View {
     @State private var saved = false
     @State private var saving = false
     @State private var keyboardVisible = false
+    @State private var handledQuickEntryRequest = 0
     @State private var holdDetailFieldUntilKeyboardHides = false
     @State private var holdPlatformFieldUntilKeyboardHides = false
     @State private var suppressDetailLabelAnimation = false
@@ -127,6 +128,15 @@ struct EntryEditor: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
     private func selectionFeedback() { UISelectionFeedbackGenerator().selectionChanged() }
+    private func focusQuickEntry(_ request: Int) {
+        guard embedded, request > 0, request != handledQuickEntryRequest else { return }
+        handledQuickEntryRequest = request
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard tabSelection == 1 else { return }
+            amountFocused = true
+        }
+    }
     private var custom: [CategoryItem] { (try? JSONDecoder().decode([CategoryItem].self, from: Data(customJSON.utf8))) ?? [] }
     private var hiddenCategories: [String] { ((try? JSONDecoder().decode([String: [String]].self, from: Data(customOptionsJSON.utf8))) ?? [:])["hiddenCategories"] ?? [] }
     private var categories: [CategoryItem] {
@@ -296,18 +306,10 @@ struct EntryEditor: View {
                 .toolbar { if !embedded { ToolbarItem(placement: .confirmationAction) { Button("取消") { dismiss() } } } }
                 .task(id: rateKey) { await loadPreviewRate() }
                 .onChange(of: quickEntryRequest) { _, value in
-                    guard embedded, value > 0 else { return }
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(350))
-                        amountFocused = true
-                    }
+                    focusQuickEntry(value)
                 }
                 .onAppear {
-                    guard embedded, quickEntryRequest > 0 else { return }
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(350))
-                        amountFocused = true
-                    }
+                    focusQuickEntry(quickEntryRequest)
                 }
                 .sheet(item: $categorySort) { request in categorySortSheet(request) }
                 .sheet(item: $optionSort) { request in optionSortSheet(request) }
