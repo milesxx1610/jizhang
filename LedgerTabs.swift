@@ -529,10 +529,10 @@ private struct Insights: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     Chart(1...dayCount, id: \.self) { day in
-                        BarMark(x: .value("日期", day), y: .value("支出", dailyAnimated ? daily(day) : 0), width: 16).foregroundStyle(day == selectedDay ? accent : accent.opacity(0.65)).cornerRadius(3)
-                    }.chartXScale(domain: 0...(dayCount + 1))
+                        RectangleMark(xStart: .value("开始", Double(day) - 0.25), xEnd: .value("结束", Double(day) + 0.25), yStart: .value("基线", 0.0), yEnd: .value("支出", dailyAnimated ? daily(day) : 0)).foregroundStyle(day == selectedDay ? accent : accent.opacity(0.65)).cornerRadius(3)
+                    }.chartXScale(domain: 0.0...Double(dayCount + 1))
                         .chartYScale(domain: 0...max((1...dayCount).map { daily($0) }.max() ?? 0, 1))
-                        .chartXAxis { AxisMarks(values: Array(1...dayCount)) { AxisValueLabel(centered: false) } }
+                        .chartXAxis { AxisMarks(values: (1...dayCount).map { Double($0) }) { value in AxisValueLabel(centered: false) { if let day = value.as(Double.self) { Text("\(Int(day))") } } } }
                         .chartYAxis(.hidden).frame(width: CGFloat(dayCount) * 32, height: 130)
                         .chartOverlay { chart in
                             GeometryReader { geometry in

@@ -98,7 +98,6 @@ private struct MonthlySummaryView: View {
         GeometryReader { geometry in
             HStack(spacing: 16) {
                 SummaryRing(entry: entry)
-                    .privacySensitive()
                     .frame(width: max(0, min(geometry.size.height - 18, geometry.size.width * 0.39)) * 0.84,
                            height: max(0, min(geometry.size.height - 18, geometry.size.width * 0.39)) * 0.84)
                 VStack(alignment: .leading, spacing: 8) {
@@ -120,13 +119,12 @@ private struct MonthlySummaryView: View {
             Spacer(minLength: 0)
             Text(amount.formatted(.currency(code: "CNY").locale(Locale(identifier: "zh_CN")).precision(.fractionLength(2))))
                 .fontWeight(.medium).monospacedDigit()
-                .lineLimit(1).minimumScaleFactor(0.5).privacySensitive()
+                .lineLimit(1).minimumScaleFactor(0.5)
         }.font(.system(size: 12))
     }
 }
 
 private struct SummaryRing: View {
-    @Environment(\.redactionReasons) private var redactionReasons
     let entry: SummaryEntry
     private let accent = Color(red: 0.12, green: 0.52, blue: 0.44)
     var body: some View {
@@ -134,13 +132,13 @@ private struct SummaryRing: View {
             let lineWidth = min(geometry.size.width, geometry.size.height) * 0.12
             ZStack {
                 Circle().stroke(Color.secondary.opacity(0.14), lineWidth: lineWidth)
-                if let values = entry.totals, values.income > 0, !redactionReasons.contains(.privacy) {
+                if let values = entry.totals, values.income > 0 {
                     Circle().trim(from: 0, to: min(values.expense / values.income, 1))
                         .stroke(accent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                 }
                 Text(percent).font(.system(size: 27, weight: .semibold, design: .rounded))
-                    .lineLimit(1).minimumScaleFactor(0.55).privacySensitive()
+                    .lineLimit(1).minimumScaleFactor(0.55)
             }.padding(lineWidth / 2)
         }
     }
