@@ -9,8 +9,9 @@ private struct NativeTypeSelector: UIViewRepresentable {
     func makeUIView(context: Context) -> UISegmentedControl {
         let control = UISegmentedControl(items: ["支出", "收入"])
         control.selectedSegmentTintColor = UIColor(red: 0.12, green: 0.52, blue: 0.44, alpha: 1)
-        control.setTitleTextAttributes([.foregroundColor: UIColor.label], for: .normal)
-        control.setTitleTextAttributes([.foregroundColor: UIColor.label], for: .selected)
+        let titleFont = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        control.setTitleTextAttributes([.font: titleFont], for: .normal)
+        control.setTitleTextAttributes([.font: titleFont], for: .selected)
         control.accessibilityLabel = "收支类型"
         control.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .valueChanged)
         return control
@@ -22,7 +23,7 @@ private struct NativeTypeSelector: UIViewRepresentable {
         if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UISegmentedControl, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? 310, height: 50)
+        CGSize(width: proposal.width ?? 280, height: 54)
     }
     final class Coordinator: NSObject {
         var income: Binding<Bool>
@@ -213,8 +214,9 @@ struct EntryEditor: View {
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text("让每一份收支都有迹可循").font(.subheadline).foregroundStyle(.secondary)
+                    Text("让每一份收支都有迹可循").font(.subheadline).foregroundStyle(.secondary).padding(.top, -6)
                     typeToggle
+                        .padding(.top, -6)
                         .onChange(of: income) { _, _ in category = ""; detail = "" }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("金额").font(.subheadline).foregroundStyle(.secondary)
@@ -256,7 +258,10 @@ struct EntryEditor: View {
                     }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
                     HStack { Text("分类").font(.headline); Spacer(); categoryMenu }
                     ZStack {
-                        categoryGrid.id(income).transition(.opacity)
+                        categoryGrid.id(income).transition(reduceMotion ? .identity : .asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.98)).animation(.easeOut(duration: 0.14).delay(0.10)),
+                            removal: .opacity.animation(.easeOut(duration: 0.10))
+                        ))
                     }
                     if !category.isEmpty && !categories.contains(where: { $0.name == category }) { Text("原有分类：\(category)").font(.subheadline).foregroundStyle(.secondary) }
                     if !category.isEmpty {
@@ -390,8 +395,8 @@ struct EntryEditor: View {
         Group {
             if #available(iOS 26.0, *) {
                 NativeTypeSelector(income: $income, reduceMotion: reduceMotion)
-                .frame(height: 50)
-                .frame(maxWidth: 310)
+                .frame(height: 54)
+                .frame(maxWidth: 280)
                 .frame(maxWidth: .infinity)
             } else {
                 legacyTypeToggle
