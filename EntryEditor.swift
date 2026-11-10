@@ -1,4 +1,28 @@
 import SwiftUI
+import UIKit
+
+private struct NativeTypeSelector: UIViewRepresentable {
+    @Binding var income: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator(income: $income) }
+    func makeUIView(context: Context) -> UISegmentedControl {
+        let control = UISegmentedControl(items: ["支出", "收入"])
+        control.selectedSegmentTintColor = UIColor(red: 0.12, green: 0.52, blue: 0.44, alpha: 1)
+        control.accessibilityLabel = "收支类型"
+        control.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .valueChanged)
+        return control
+    }
+    func updateUIView(_ control: UISegmentedControl, context: Context) {
+        context.coordinator.income = $income
+        let selected = income ? 1 : 0
+        if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
+    }
+    final class Coordinator: NSObject {
+        var income: Binding<Bool>
+        init(income: Binding<Bool>) { self.income = income }
+        @objc func changed(_ sender: UISegmentedControl) { income.wrappedValue = sender.selectedSegmentIndex == 1 }
+    }
+}
 
 struct CategoryItem: Codable, Identifiable, Hashable {
     var name: String
@@ -351,12 +375,7 @@ struct EntryEditor: View {
     private var typeToggle: some View {
         Group {
             if #available(iOS 26.0, *) {
-                Picker("收支类型", selection: $income) {
-                    Text("支出").tag(false)
-                    Text("收入").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .tint(selectionColor)
+                NativeTypeSelector(income: $income)
                 .frame(maxWidth: 310)
                 .frame(maxWidth: .infinity)
             } else {
