@@ -8,6 +8,8 @@ private struct NativeTypeSelector: UIViewRepresentable {
     func makeUIView(context: Context) -> UISegmentedControl {
         let control = UISegmentedControl(items: ["支出", "收入"])
         control.selectedSegmentTintColor = UIColor(red: 0.12, green: 0.52, blue: 0.44, alpha: 1)
+        control.setTitleTextAttributes([.foregroundColor: UIColor.secondaryLabel], for: .normal)
+        control.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .selected)
         control.accessibilityLabel = "收支类型"
         control.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .valueChanged)
         return control
@@ -244,6 +246,9 @@ struct EntryEditor: View {
                     }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
                     HStack { Text("分类").font(.headline); Spacer(); categoryMenu }
                     categoryGrid
+                        .id(income)
+                        .transition(.opacity)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: income)
                     if !category.isEmpty && !categories.contains(where: { $0.name == category }) { Text("原有分类：\(category)").font(.subheadline).foregroundStyle(.secondary) }
                     if !category.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
@@ -376,6 +381,7 @@ struct EntryEditor: View {
         Group {
             if #available(iOS 26.0, *) {
                 NativeTypeSelector(income: $income)
+                .frame(height: 50)
                 .frame(maxWidth: 310)
                 .frame(maxWidth: .infinity)
             } else {
