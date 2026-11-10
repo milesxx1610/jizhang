@@ -573,8 +573,8 @@ private struct Insights: View {
                 let width = geometry.size.width * (budgetAnimated ? progress : 0)
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.secondary.opacity(0.2)).frame(height: 5)
-                    Capsule().fill(value > budget ? Color.orange : accent).frame(width: width, height: 5)
-                    Circle().fill(value > budget ? Color.orange : accent).frame(width: 10, height: 10).offset(x: min(max(width - 5, 0), max(geometry.size.width - 10, 0)))
+                    Capsule().fill(budgetProgressColor(value / budget)).frame(width: width, height: 5)
+                    Circle().fill(budgetProgressColor(value / budget)).frame(width: 10, height: 10).offset(x: min(max(width - 5, 0), max(geometry.size.width - 10, 0)))
                 }.frame(maxHeight: .infinity)
             }.frame(height: 14)
             Text("预算 \(moneyText(Decimal(budget))) · 已支出 \(moneyText(spent)) · \((value / budget * 100).formatted(.number.precision(.fractionLength(0...1))))%")
@@ -730,6 +730,7 @@ private struct BudgetSettings: View {
                 Button("保存预算") {
                     guard let value = Double(input.replacingOccurrences(of: ",", with: ".")), value.isFinite, value >= 0, value <= 999999999 else { invalid = true; return }
                     budget = value
+                    publishWidgetBudget(value)
                     dismiss()
                 }
             } footer: { Text("输入 0 可关闭月度预算。") }

@@ -354,7 +354,14 @@ struct EntryEditor: View {
             let offset = min(max((income ? width : 0) + typeDrag, 0), width)
             ZStack(alignment: .leading) {
                 Capsule().fill(Color(uiColor: .tertiarySystemFill))
-                Capsule().fill(selectionColor).frame(width: width, height: 44).offset(x: 3 + offset)
+                Group {
+                    if #available(iOS 26.0, *) {
+                        Color.clear.frame(width: width, height: 44)
+                            .glassEffect(.regular.tint(selectionColor).interactive(), in: Capsule())
+                    } else {
+                        Capsule().fill(selectionColor).frame(width: width, height: 44)
+                    }
+                }.offset(x: 3 + offset)
                 HStack(spacing: 0) {
                     ForEach([false, true], id: \.self) { value in
                         Button { withAnimation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.9)) { income = value } } label: {

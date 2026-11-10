@@ -70,6 +70,7 @@ struct LedgerBackup: Codable {
         guard save(backup.entries) else { throw CocoaError(.fileWriteUnknown) }
         UserDefaults.standard.set(text, forKey: "customCategories")
         UserDefaults.standard.set(backup.monthlyBudget, forKey: "monthlyBudget")
+        publishWidgetBudget(backup.monthlyBudget)
         if let order = backup.categoryOrder { UserDefaults.standard.set(order, forKey: "categoryOrder") }
         if let options = backup.customEntryOptions { UserDefaults.standard.set(options, forKey: "customEntryOptions") }
         if let icons = backup.customOptionEmoji { UserDefaults.standard.set(icons, forKey: "customOptionEmoji") }
@@ -95,6 +96,7 @@ struct LedgerBackup: Codable {
         } catch { self.error = "保存失败，请重试。"; return false }
     }
     private func publishWidgetData() {
+        publishWidgetBudget(UserDefaults.standard.double(forKey: "monthlyBudget"))
         var totals: [String: MonthlyTotals] = [:]
         let calendar = Calendar.current
         for entry in entries {

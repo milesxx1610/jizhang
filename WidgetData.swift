@@ -1,4 +1,17 @@
 import Foundation
+import SwiftUI
+import WidgetKit
+
+func budgetProgressColor(_ ratio: Double) -> Color {
+    if ratio > 1 { return .red }
+    if ratio >= 0.8 { return .orange }
+    return Color(red: 0.12, green: 0.52, blue: 0.44)
+}
+
+func publishWidgetBudget(_ budget: Double) {
+    widgetSharedDefaults()?.set(budget, forKey: "monthlyBudget")
+    WidgetCenter.shared.reloadTimelines(ofKind: "MonthlySummary")
+}
 
 let widgetGroup = "group.com.miles1610.simpleledger"
 

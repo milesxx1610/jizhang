@@ -50,11 +50,12 @@ private struct QuickEntryControl: ControlWidget {
 private struct SummaryEntry: TimelineEntry {
     let date: Date
     let totals: MonthlyTotals?
+    var budget: Double = 0
 }
 
 private struct SummaryProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> SummaryEntry {
-        SummaryEntry(date: .now, totals: MonthlyTotals(income: 4000, expense: 2400))
+        SummaryEntry(date: .now, totals: MonthlyTotals(income: 4000, expense: 2400), budget: 4000)
     }
     func snapshot(for configuration: SummaryConfiguration, in context: Context) async -> SummaryEntry {
         entry(configuration)
@@ -73,7 +74,7 @@ private struct SummaryProvider: AppIntentTimelineProvider {
             return SummaryEntry(date: date, totals: nil)
         }
         let monthly = totals["\(year)-\(month)"] ?? MonthlyTotals(income: 0, expense: 0)
-        return SummaryEntry(date: date, totals: monthly.incomplete ? nil : monthly)
+        return SummaryEntry(date: date, totals: monthly.incomplete ? nil : monthly, budget: shared.double(forKey: "monthlyBudget"))
     }
 }
 
@@ -85,7 +86,7 @@ private struct MonthlySummaryWidget: Widget {
             .widgetURL(URL(string: "simpleledger://summary"))
         }
         .configurationDisplayName("本月收支")
-        .description("查看本月收支与结余。")
+        .description("查看本月收支、结余和预算使用比例。")
         .supportedFamilies([.systemMedium])
     }
 }
@@ -132,9 +133,9 @@ private struct SummaryRing: View {
             let lineWidth = min(geometry.size.width, geometry.size.height) * 0.12
             ZStack {
                 Circle().stroke(Color.secondary.opacity(0.14), lineWidth: lineWidth)
-                if let values = entry.totals, values.income > 0 {
-                    Circle().trim(from: 0, to: min(values.expense / values.income, 1))
-                        .stroke(accent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                if let values = entry.totals, entry.budget > 0 {
+                    Circle().trim(from: 0, to: min(max(values.expense / entry.budget, 0), 1))
+                        .stroke(budgetProgressColor(values.expense / entry.budget), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                 }
                 Text(percent).font(.system(size: 27, weight: .semibold, design: .rounded))
@@ -143,8 +144,8 @@ private struct SummaryRing: View {
         }
     }
     private var percent: String {
-        guard let totals = entry.totals, totals.income > 0 else { return "—" }
-        return (totals.expense / totals.income).formatted(.percent.precision(.fractionLength(0)))
+        guard let totals = entry.totals, entry.budget > 0 else { return "—" }
+        return (totals.expense / entry.budget).formatted(.percent.precision(.fractionLength(0)))
     }
 }
 
