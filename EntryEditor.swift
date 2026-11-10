@@ -3,26 +3,36 @@ import UIKit
 
 private struct NativeTypeSelector: UIViewRepresentable {
     @Binding var income: Bool
+    var reduceMotion: Bool
 
-    func makeCoordinator() -> Coordinator { Coordinator(income: $income) }
+    func makeCoordinator() -> Coordinator { Coordinator(income: $income, reduceMotion: reduceMotion) }
     func makeUIView(context: Context) -> UISegmentedControl {
         let control = UISegmentedControl(items: ["支出", "收入"])
         control.selectedSegmentTintColor = UIColor(red: 0.12, green: 0.52, blue: 0.44, alpha: 1)
-        control.setTitleTextAttributes([.foregroundColor: UIColor.secondaryLabel], for: .normal)
-        control.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .selected)
+        control.setTitleTextAttributes([.foregroundColor: UIColor.label], for: .normal)
+        control.setTitleTextAttributes([.foregroundColor: UIColor.label], for: .selected)
         control.accessibilityLabel = "收支类型"
         control.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .valueChanged)
         return control
     }
     func updateUIView(_ control: UISegmentedControl, context: Context) {
         context.coordinator.income = $income
+        context.coordinator.reduceMotion = reduceMotion
         let selected = income ? 1 : 0
         if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
     }
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UISegmentedControl, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 310, height: 50)
+    }
     final class Coordinator: NSObject {
         var income: Binding<Bool>
-        init(income: Binding<Bool>) { self.income = income }
-        @objc func changed(_ sender: UISegmentedControl) { income.wrappedValue = sender.selectedSegmentIndex == 1 }
+        var reduceMotion: Bool
+        init(income: Binding<Bool>, reduceMotion: Bool) { self.income = income; self.reduceMotion = reduceMotion }
+        @objc func changed(_ sender: UISegmentedControl) {
+            withAnimation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.9)) {
+                income.wrappedValue = sender.selectedSegmentIndex == 1
+            }
+        }
     }
 }
 
@@ -245,10 +255,9 @@ struct EntryEditor: View {
                         }
                     }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
                     HStack { Text("分类").font(.headline); Spacer(); categoryMenu }
-                    categoryGrid
-                        .id(income)
-                        .transition(.opacity)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: income)
+                    ZStack {
+                        categoryGrid.id(income).transition(.opacity)
+                    }
                     if !category.isEmpty && !categories.contains(where: { $0.name == category }) { Text("原有分类：\(category)").font(.subheadline).foregroundStyle(.secondary) }
                     if !category.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
@@ -380,7 +389,7 @@ struct EntryEditor: View {
     private var typeToggle: some View {
         Group {
             if #available(iOS 26.0, *) {
-                NativeTypeSelector(income: $income)
+                NativeTypeSelector(income: $income, reduceMotion: reduceMotion)
                 .frame(height: 50)
                 .frame(maxWidth: 310)
                 .frame(maxWidth: .infinity)
