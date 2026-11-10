@@ -349,19 +349,28 @@ struct EntryEditor: View {
         }.frame(width: 200).padding(.bottom, 8)
     }
     private var typeToggle: some View {
+        Group {
+            if #available(iOS 26.0, *) {
+                Picker("收支类型", selection: $income) {
+                    Text("支出").tag(false)
+                    Text("收入").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .tint(selectionColor)
+                .frame(maxWidth: 310)
+                .frame(maxWidth: .infinity)
+            } else {
+                legacyTypeToggle
+            }
+        }
+    }
+    private var legacyTypeToggle: some View {
         GeometryReader { geometry in
             let width = (geometry.size.width - 6) / 2
             let offset = min(max((income ? width : 0) + typeDrag, 0), width)
             ZStack(alignment: .leading) {
                 Capsule().fill(Color(uiColor: .tertiarySystemFill))
-                Group {
-                    if #available(iOS 26.0, *) {
-                        Color.clear.frame(width: width, height: 44)
-                            .glassEffect(.regular.tint(selectionColor).interactive(), in: Capsule())
-                    } else {
-                        Capsule().fill(selectionColor).frame(width: width, height: 44)
-                    }
-                }.offset(x: 3 + offset)
+                Capsule().fill(selectionColor).frame(width: width, height: 44).offset(x: 3 + offset)
                 HStack(spacing: 0) {
                     ForEach([false, true], id: \.self) { value in
                         Button { withAnimation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.9)) { income = value } } label: {
